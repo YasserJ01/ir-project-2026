@@ -19,7 +19,13 @@ sentence-transformers>=3
 torch>=2.2
 faiss-cpu>=1.8
 # gensim skipped (no cp312 wheel path conflict — re-evaluate in Phase 3)
-rank_bm25>=0.2
+# BM25 (Phase 2): bm25s is the chosen library — ~50x faster than rank_bm25 on
+# 500K-doc corpora because the scoring loop is vectorized via NumPy.
+# Drop-in API: bm25s.BM25().method = "lucene" (BM25Okapi equivalent).
+# See docs/PHASE_2.md §13 for the deviation from the guide's `rank_bm25` recommendation.
+bm25s>=0.3
+# rank_bm25 kept as a reference impl (not imported anywhere); remove in Phase 3 cleanup.
+# rank_bm25>=0.2
 scikit-learn>=1.5
 numpy>=1.26
 scipy>=1.11

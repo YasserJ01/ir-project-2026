@@ -1,7 +1,8 @@
 """Shared package for cross-service types and utilities.
 
-Phase 1 ships the preprocessing library. Later phases add pydantic
-schemas (Phase 5 search requests/responses) and shared config.
+Phase 1 ships the preprocessing library. Phase 2 adds Pydantic schemas
+(``SearchRequest``/``SearchResponse``/etc.) consumed by the indexing
+service, the gateway (Phase 6), and the React UI (Phase 7).
 """
 
 from shared.ir_common.preprocess import (
@@ -16,8 +17,23 @@ from shared.ir_common.preprocess import (
     strip_html,
     tokenize,
 )
+from shared.ir_common.schemas import (
+    DATASET_IDS,
+    BuildRequest,
+    BuildResponse,
+    HealthResponse,
+    Posting,
+    PostingsRequest,
+    PostingsResponse,
+    SearchModel,
+    SearchRequest,
+    SearchResponse,
+    SearchResult,
+    StatsResponse,
+)
 
 __all__ = [
+    # Preprocessing (Phase 1)
     "PIPELINE_STEPS",
     "preprocess",
     "preprocess_batch",
@@ -28,4 +44,17 @@ __all__ = [
     "stem_tokens",
     "strip_html",
     "tokenize",
+    # Schemas (Phase 2)
+    "DATASET_IDS",
+    "BuildRequest",
+    "BuildResponse",
+    "HealthResponse",
+    "Posting",
+    "PostingsRequest",
+    "PostingsResponse",
+    "SearchModel",
+    "SearchRequest",
+    "SearchResponse",
+    "SearchResult",
+    "StatsResponse",
 ]

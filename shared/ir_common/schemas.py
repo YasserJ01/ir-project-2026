@@ -1,0 +1,185 @@
+"""Pydantic schemas shared across the IR services.
+
+Single source of truth for the wire format. The gateway (Phase 6) and the
+React UI's ``src/types/api.ts`` (Phase 7) both import these (the latter
+via JSON Schema generation). Phase 2 ships the search-related models;
+later phases add refinement, RAG, and dataset-list models.
+
+All fields are deliberately permissive (Pydantic v2 with ``model_config``
+allowing extra fields forward-compat) so a Phase 5 caller can send a
+``fusion`` field to a Phase 2 server without a 422.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+# ─────────────────────────────────────────────────────────────────────────
+# Datasets
+# ─────────────────────────────────────────────────────────────────────────
+
+# Allowed dataset ids. Kept here (not in config) so the schema is the
+# source of truth that the React UI and the gateway both validate against.
+DATASET_IDS: tuple[str, ...] = ("touche2020", "nq")
+
+SearchModel = Literal["inverted", "tfidf", "bm25"]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Build
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class BuildRequest(BaseModel):
+    """Body for ``POST /index/{dataset_id}/build``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    min_df: int = Field(2, ge=1, description="Drop terms that appear in fewer than this many docs.")
+    max_df_ratio: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Drop terms that appear in more than this fraction of docs.",
+    )
+    bm25_method: Literal["lucene", "atire", "robertson", "bm25l", "bm25plus"] = Field(
+        default="lucene", description="BM25 variant. 'lucene' is the BM25Okapi equivalent."
+    )
+
+
+class BuildResponse(BaseModel):
+    """Response to ``POST /index/{dataset_id}/build`` (202 Accepted)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_id: str
+    started: bool = True
+    job_id: str
+    message: str = "Build started in background. Poll /index/{dataset_id}/stats to see completion."
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Stats
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class StatsResponse(BaseModel):
+    """Response to ``GET /index/{dataset_id}/stats``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_id: str
+    exists: bool
+    loaded: bool = False
+    vocab_size: int = 0
+    total_docs: int = 0
+    avg_doc_length: float = 0.0
+    build_seconds: float = 0.0
+    build_at: str = ""
+    size_mb: float = 0.0
+    cap: dict[str, int | float] = Field(
+        default_factory=dict, description="InvertedIndex vocabulary cap (min_df, max_df_ratio)."
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Search
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class SearchRequest(BaseModel):
+    """Body for ``POST /index/{dataset_id}/search``."""
+
+    # Forward-compat: Phase 5 callers may send a `fusion` field. We don't
+    # 422 on it; we just ignore it at this layer (the gateway picks it up).
+    model_config = ConfigDict(extra="ignore")
+
+    query_tokens: list[str] = Field(
+        ...,
+        min_length=1,
+        max_length=512,
+        description="Pre-tokenized, stemmed query (output of shared/ir_common/preprocess).",
+    )
+    model: SearchModel = Field("bm25", description="Which retriever to use.")
+    k: int = Field(10, ge=1, le=1000, description="Number of results to return.")
+    # BM25 hyperparameters. Ignored by `tfidf` and `inverted` models.
+    k1: float = Field(1.5, ge=0.0, le=10.0, description="BM25 term-frequency saturation.")
+    b: float = Field(0.75, ge=0.0, le=1.0, description="BM25 length normalization.")
+
+
+class SearchResult(BaseModel):
+    """One hit in a ``SearchResponse``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rank: int = Field(..., ge=1, description="1-based rank.")
+    doc_id: str
+    score: float
+
+
+class SearchResponse(BaseModel):
+    """Response to ``POST /index/{dataset_id}/search``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_id: str
+    model: SearchModel
+    k: int
+    latency_ms: int
+    results: list[SearchResult]
+    # Echo back the params so the client can confirm what was used.
+    k1: float | None = None
+    b: float | None = None
+    cached: bool = False
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Postings (debug)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class PostingsRequest(BaseModel):
+    """Query for ``GET /index/{dataset_id}/postings/{term}``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cap: int = Field(1000, ge=1, le=10000, description="Maximum number of postings to return.")
+
+
+class Posting(BaseModel):
+    """One (doc_id, tf) entry in a postings list."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    doc_id: str
+    tf: int = Field(..., ge=1)
+
+
+class PostingsResponse(BaseModel):
+    """Response for the postings debug endpoint."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_id: str
+    term: str
+    doc_freq: int
+    postings: list[Posting]
+    truncated: bool = False
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Service health
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class HealthResponse(BaseModel):
+    """Response to ``GET /health``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ok"] = "ok"
+    service: str = "indexing"
+    loaded_dataset: str | None = None
+    version: str = "0.1.0"

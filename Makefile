@@ -10,7 +10,7 @@ BLACK  := $(PY) -m black
 MYPY   := $(PY) -m mypy
 PYTEST := $(PY) -m pytest
 
-.PHONY: help install venv lint fmt type test up down dev-ui dev-gateway eval clean ingest ingest-a ingest-b tokenize
+.PHONY: help install venv lint fmt type test up down dev-ui dev-gateway dev-preproc dev-indexing build-indexes smoke-search eval clean ingest ingest-a ingest-b tokenize
 
 help:  ## Show this help.
 	@Select-String -Path "$($PSCommandPath)" -Pattern "^[a-zA-Z_-]+:.*?## " | ForEach-Object { $$_.Line }
@@ -31,7 +31,7 @@ fmt:  ## Auto-format (ruff --fix + black).
 	& $(ACT); $(BLACK) .
 
 type:  ## Mypy.
-	& $(ACT); $(MYPY) services shared
+	& $(ACT); $(MYPY) services shared scripts
 
 test:  ## Run pytest.
 	& $(ACT); $(PYTEST)
@@ -41,6 +41,15 @@ dev-gateway:  ## Run the API gateway (uvicorn) in dev.
 
 dev-preproc:  ## Run the preprocessing service in dev (port 8001).
 	& $(ACT); uvicorn services.preprocessing.app.pipeline:app --reload --port 8001
+
+dev-indexing:  ## Run the indexing service in dev (port 8002).
+	& $(ACT); uvicorn services.indexing.app.service:app --reload --port 8002
+
+build-indexes:  ## Build the inverted, TF-IDF and BM25 indexes for both datasets (~8 min).
+	& $(ACT); $(PY) scripts/build_indexes.py
+
+smoke-search:  ## Hand-test search on the built indexes.
+	& $(ACT); $(PY) scripts/smoke_search.py
 
 dev-ui:  ## Run the React UI in dev.
 	cd services/ui; npm run dev
