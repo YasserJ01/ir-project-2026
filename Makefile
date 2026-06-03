@@ -10,7 +10,7 @@ BLACK  := $(PY) -m black
 MYPY   := $(PY) -m mypy
 PYTEST := $(PY) -m pytest
 
-.PHONY: help install venv lint fmt type test up down dev-ui dev-gateway eval clean
+.PHONY: help install venv lint fmt type test up down dev-ui dev-gateway eval clean ingest ingest-a ingest-b tokenize
 
 help:  ## Show this help.
 	@Select-String -Path "$($PSCommandPath)" -Pattern "^[a-zA-Z_-]+:.*?## " | ForEach-Object { $$_.Line }
@@ -20,7 +20,7 @@ venv:
 	@if (-not (Test-Path $(VENV))) { $(PY) -m venv $(VENV) }
 	& $(ACT); $(PIP) install --upgrade pip
 	& $(ACT); $(PIP) install -r requirements.txt
-	& $(ACT); $(PY) -m nltk.downloader punkt stopwords wordnet
+	& $(ACT); $(PY) -m nltk.downloader punkt stopwords wordnet punkt_tab
 
 lint:  ## Ruff + black --check.
 	& $(ACT); $(RUFF) check .
@@ -39,6 +39,9 @@ test:  ## Run pytest.
 dev-gateway:  ## Run the API gateway (uvicorn) in dev.
 	& $(ACT); uvicorn services.gateway.app.main:app --reload --port 8000
 
+dev-preproc:  ## Run the preprocessing service in dev (port 8001).
+	& $(ACT); uvicorn services.preprocessing.app.pipeline:app --reload --port 8001
+
 dev-ui:  ## Run the React UI in dev.
 	cd services/ui; npm run dev
 
@@ -47,6 +50,17 @@ up:  ## Docker compose up.
 
 down:  ## Docker compose down.
 	docker compose down
+
+ingest: ingest-a ingest-b  ## Ingest both datasets (A: touche2020, B: nq).
+
+ingest-a:  ## Ingest Dataset A: beir/webis-touche2020 (~5 min, 382K docs).
+	& $(ACT); $(PY) scripts/ingest_dataset_a.py
+
+ingest-b:  ## Ingest Dataset B: beir/nq (~10 min, 500K docs).
+	& $(ACT); $(PY) scripts/ingest_dataset_b.py
+
+tokenize:  ## Tokenize every docs.jsonl into tokens.jsonl (~10 min both, 8 workers).
+	& $(ACT); $(PY) scripts/tokenize_corpus.py
 
 eval:  ## Run the full evaluation matrix.
 	& $(ACT); $(PY) scripts/run_evaluation.py

@@ -55,6 +55,10 @@ data/indexes/*
 data/faiss/*
 data/user_logs/*
 !data/**/.gitkeep
+# Logs + scratch files written at data/ root by background scripts
+data/*.log
+data/*.json
+!data/.gitkeep
 
 # ─── Project artefacts ────────────────────────────────────
 evaluation/results/*
