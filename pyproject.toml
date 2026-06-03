@@ -1,0 +1,76 @@
+[project]
+name = "ir-project-2026"
+version = "0.1.0"
+description = "Information Retrieval System (SOA, 4 representations, RAG, Vector Store) — Practical Project 2026"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Yasser Jeroodi", email = "jerodi-yaser@hotmail.com" },
+]
+
+# ─── Ruff (linter) ───────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [
+    ".venv",
+    "services/ui/node_modules",
+    "services/ui/dist",
+    "data",
+    "evaluation/results",
+    "evaluation/reports/plots",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in default argument (FastAPI uses this)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"services/*/app/main.py" = ["B008"]
+
+# ─── Black (formatter) ───────────────────────────────────
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+    \.venv
+  | services/ui
+  | data
+)/
+'''
+
+# ─── Mypy (type checker) ─────────────────────────────────
+[tool.mypy]
+python_version = "3.12"
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+exclude = [
+    ".venv",
+    "services/ui",
+    "data",
+    "evaluation",
+    "node_modules",
+]
+
+# ─── Pytest ───────────────────────────────────────────────
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["services", "shared", "tests"]
+python_files = ["test_*.py", "*_test.py"]
+addopts = "-ra -q --strict-markers"
+asyncio_mode = "auto"

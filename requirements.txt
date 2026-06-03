@@ -1,0 +1,51 @@
+# ─── Web framework ───────────────────────────────────────
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+pydantic-settings>=2.3
+httpx>=0.27
+requests>=2.32
+
+# ─── Dataset access ───────────────────────────────────────
+ir_datasets>=0.5
+
+# ─── NLP / preprocessing ──────────────────────────────────
+nltk>=3.9
+# spaCy skipped in Phase 0 (no cp312 wheel path is fine, but we keep NLTK-only for now)
+# spaCy + en_core_web_sm used later if available
+
+# ─── Vector / Embedding / ML ──────────────────────────────
+sentence-transformers>=3
+torch>=2.2
+faiss-cpu>=1.8
+# gensim skipped (no cp312 wheel path conflict — re-evaluate in Phase 3)
+rank_bm25>=0.2
+scikit-learn>=1.5
+numpy>=1.26
+scipy>=1.11
+
+# ─── Evaluation (added in Phase 9) ────────────────────────
+# pytrec_eval>=0.5        # skipped: no Windows wheels (requires MSVC build tools)
+# ir_measures>=0.4        # alternative; will be re-evaluated in Phase 9
+pandas>=2
+
+# ─── Refinement ───────────────────────────────────────────
+symspellpy>=6.7
+language-tool-python>=2.7
+
+# ─── RAG (Phase 8) ────────────────────────────────────────
+# Note: `transformers` + `torch` pull several GB. Installed now to verify wheel
+# compatibility on Python 3.12; full download happens lazily in Phase 8.
+langchain>=0.2
+transformers>=4.44
+accelerate>=0.33
+
+# ─── Tooling ──────────────────────────────────────────────
+pytest>=8
+pytest-asyncio>=0.23
+ruff>=0.5
+black>=24
+mypy>=1.10
+joblib>=1.4
+tqdm>=4.66
+python-dotenv>=1.0
