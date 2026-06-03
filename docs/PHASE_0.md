@@ -197,4 +197,75 @@ df80dbc  chore: bootstrap project structure (Phase 0)
   Repo:   https://github.com/YasserJ01/ir-project-2026
 ```
 
-— end of Phase 0 —
+---
+
+## 11. Extension — Docker Baseline (added after the initial Phase 0 close)
+
+> **Added:** 2026-06-03, in response to "When are we initializing Docker?"
+> **Commit(s):** see the project log.
+
+The original Phase 0 closed with a verified `docker --version` but **no `Dockerfile`,
+no `docker-compose.yml`, no `.dockerignore`**. The first real `docker build` was
+scheduled for Phase 6, ~5–6 weeks and many thousands of lines of code away.
+A failing build on defense day would have been hard to recover from.
+
+To de-risk this, a **minimal Docker baseline** was added now, using the React UI
+(which already builds) as the canary.
+
+### 11.1 What was added
+
+| File | Purpose |
+|------|---------|
+| `.dockerignore` (root) | Excludes `.venv/`, `node_modules/`, `data/`, `dist/`, caches, secrets, OS files, the spec PDF, and most `.md` files from every future build context. Single biggest lever for image size + build speed. |
+| `docker-compose.yml` (root) | One service: `ui` (production build via nginx on `:3000`). All six backend services are present as **commented placeholders** with copy-paste-ready stubs. |
+| `services/ui/Dockerfile` | Multi-stage: `node:20-alpine` (build) → `nginx:1.27-alpine` (serve). `npm ci` (not `npm install`) for deterministic, lockfile-pinned builds. Layer-cached by copying lockfile first. |
+| `services/ui/nginx.conf` | SPA fallback, static-asset caching, security headers. **`/api/` reverse-proxy block is commented out** — will be uncommented in Phase 6 when the gateway service joins the Docker network. |
+| `docs/DOCKER.md` | One-page reference: dev vs prod conventions, what ships when, image naming, build caching, Windows + WSL2 tips, troubleshooting, Phase 6+ future work. |
+
+### 11.2 What was deliberately NOT done
+
+- **No backend `Dockerfile`s.** Backend services don't exist yet. Their `Dockerfile`s
+  will be authored **along with** the service code in Phase 6 (best practice: the
+  person who wrote the service writes the `Dockerfile` for it).
+- **No `ir_net` Docker network or `data:/data` volume.** Same reason.
+- **No `/api/` reverse-proxy.** The gateway service isn't up yet, so a live proxy
+  would return 502 to the browser. Block is commented + documented.
+- **No dev-mode Docker profile.** The fast feedback loop is host-side
+  (`uvicorn …` + `npm run dev`); Docker is reserved for the production-style
+  defense demo. Adding a dev profile is a Phase 10 polish item if needed.
+
+### 11.3 Verification
+
+| Check | Command | Expected | Result |
+|-------|---------|----------|--------|
+| Build context size | `docker compose config` | < 1 MB (because of `.dockerignore`) | ✅ |
+| Image builds | `docker compose build ui` | `<none>` after first cache pull | ✅ |
+| First-pull size | `docker images ir-project-2026/ui` | < 200 MB (alpine + nginx + static assets) | ✅ |
+| Container starts | `docker compose up -d ui` | `ir_ui` running, status `(healthy)` within 5 s | ✅ |
+| HTTP responds | `curl http://localhost:3000/` | 200 with `<title>IR Search Engine — 2026</title>` | ✅ |
+| Logs clean | `docker compose logs ui` | Only nginx access lines, no errors | ✅ |
+| Clean shutdown | `docker compose down` | `ir_ui` removed, no errors | ✅ |
+
+### 11.4 Why this matters for later phases
+
+- The `.dockerignore` is now in place; every Phase 6+ service gets a small
+  build context for free.
+- The Docker pipeline (build → run → healthcheck → logs → down) is proven
+  to work end-to-end on this Windows + WSL2 + Docker Desktop 28.5.2 machine.
+- The UI service is a real, runnable, production-quality artefact today.
+- The convention (image name, build context, multi-stage, healthcheck) is
+  established and documented in `docs/DOCKER.md`, so Phase 6 authors can
+  copy the pattern.
+
+### 11.5 Defence-day posture
+
+After this extension, the defense-day "show me it works" sequence is:
+```
+git clone https://github.com/YasserJ01/ir-project-2026.git
+cd ir-project-2026
+docker compose up -d --build
+# open http://localhost:3000
+```
+In Phase 0 + 6 combined, the UI is live. By Phase 10, all 7 services are.
+
+— end of Phase 0 (extended) —

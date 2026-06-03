@@ -42,7 +42,12 @@ npm run build      # verify it builds
 cd ..\..
 
 # 3. Verify
-python -c "import fastapi, faiss, sentence_transformers, ir_datasets, pytrec_eval; print('PY OK')"
+python -c "import fastapi, faiss, sentence_transformers, ir_datasets; print('PY OK')"
+
+# 4. (Optional) Run the UI in production mode via Docker
+docker compose up -d --build
+# → http://localhost:3000
+# See docs/DOCKER.md for dev vs prod conventions.
 ```
 
 ## Architecture (high level)

@@ -1,0 +1,79 @@
+# IR Project 2026 — Docker Compose
+#
+# Phase 0 ships ONLY the UI service (production mode, served by nginx).
+# The backend services (gateway, preprocessing, indexing, retrieval, refinement, rag)
+# are added in Phase 6 (Service-Oriented Architecture).
+#
+# See docs/DOCKER.md for conventions and the dev-vs-prod workflow.
+
+name: ir-project-2026
+
+services:
+  # ─── Frontend (production build via nginx) ──────────────
+  ui:
+    build:
+      context: .
+      dockerfile: services/ui/Dockerfile
+    image: ir-project-2026/ui:phase0
+    container_name: ir_ui
+    ports:
+      - "3000:80"   # http://localhost:3000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # ─── Backend services (placeholders — added in Phase 6) ─
+  # gateway:
+  #   build: ./services/gateway
+  #   image: ir-project-2026/gateway:latest
+  #   container_name: ir_gateway
+  #   environment:
+  #     - PREPROCESSING_URL=http://preprocessing:8001
+  #     - INDEXING_URL=http://indexing:8002
+  #     - RETRIEVAL_URL=http://retrieval:8003
+  #     - REFINEMENT_URL=http://refinement:8004
+  #     - RAG_URL=http://rag:8005
+  #   ports:
+  #     - "8000:8000"
+  #   depends_on:
+  #     preprocessing:    { condition: service_started }
+  #     indexing:         { condition: service_started }
+  #     retrieval:        { condition: service_started }
+  #     refinement:       { condition: service_started }
+  #     rag:              { condition: service_started }
+  #   networks:
+  #     - ir_net
+  #
+  # preprocessing:
+  #   build: ./services/preprocessing
+  #   ...
+  #
+  # indexing:
+  #   build: ./services/indexing
+  #   ...
+  #
+  # retrieval:
+  #   build: ./services/retrieval
+  #   ...
+  #
+  # refinement:
+  #   build: ./services/refinement
+  #   ...
+  #
+  # rag:
+  #   build: ./services/rag
+  #   ...
+
+# ─── Networks (enabled in Phase 6) ──────────────────────
+# networks:
+#   ir_net:
+#     driver: bridge
+
+# ─── Volumes (added in Phase 6 to share data across services) ─
+# volumes:
+#   data:
+#     driver: local

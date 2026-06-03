@@ -1,0 +1,55 @@
+# ─── Python ───────────────────────────────────────────────
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+
+# ─── Node / React ─────────────────────────────────────────
+node_modules/
+services/ui/dist/
+services/ui/node_modules/
+services/ui/.vite/
+services/ui/*.tsbuildinfo
+services/ui/vite.config.js
+services/ui/vite.config.d.ts
+
+# ─── Data (regenerable, large) ────────────────────────────
+data/
+evaluation/results/
+evaluation/reports/plots/
+
+# ─── Secrets & env ────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ─── Git / IDE / OS ───────────────────────────────────────
+.git/
+.gitignore
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+*.swp
+*.swo
+
+# ─── Project docs (not needed in images) ──────────────────
+*.md
+!README.md
+"IR Project 2026.pdf"
+SOLO_DEVELOPER_GUIDE.md
+TEAM_DOCUMENTATION.md
+Information_Retrieval_System_Project_2026.md
+
+# ─── Make / shell scripts (host-only) ─────────────────────
+Makefile
