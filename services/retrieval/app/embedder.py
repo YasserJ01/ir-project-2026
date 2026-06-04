@@ -239,7 +239,7 @@ class Embedder:
         # ``get_embedding_dimension`` in sentence-transformers 5.x; the
         # old name is deprecated but still works. Use the new name with
         # a fallback for the few older 4.x versions in the wild.
-        get_dim = getattr(st, "get_embedding_dimension", None) or getattr(
+        get_dim = getattr(st, "get_embedding_dimension", None) or getattr(  # noqa: B009
             st, "get_sentence_embedding_dimension"
         )
         dim = int(get_dim())
