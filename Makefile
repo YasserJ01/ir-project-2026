@@ -10,17 +10,32 @@ BLACK  := $(PY) -m black
 MYPY   := $(PY) -m mypy
 PYTEST := $(PY) -m pytest
 
-.PHONY: help install venv lint fmt type test up down dev-ui dev-gateway dev-preproc dev-indexing build-indexes smoke-search eval clean ingest ingest-a ingest-b tokenize
+.PHONY: help install install-torch-gpu venv lint fmt type test up down dev-ui dev-gateway dev-preproc dev-indexing dev-retrieval build-indexes build-dense smoke-search smoke-dense download-models eval clean ingest ingest-a ingest-b tokenize
 
 help:  ## Show this help.
 	@Select-String -Path "$($PSCommandPath)" -Pattern "^[a-zA-Z_-]+:.*?## " | ForEach-Object { $$_.Line }
 
-install: venv  ## Create venv and install Python deps.
+install: venv  ## Create venv and install Python deps (CPU torch by default; Phase 3 needs install-torch-gpu).
 venv:
 	@if (-not (Test-Path $(VENV))) { $(PY) -m venv $(VENV) }
 	& $(ACT); $(PIP) install --upgrade pip
-	& $(ACT); $(PIP) install -r requirements.txt
+	& $(ACT); $(PIP) install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
 	& $(ACT); $(PY) -m nltk.downloader punkt stopwords wordnet punkt_tab
+
+install-torch-gpu:  ## Install torch+cu121 from local wheel (data/downloads/) or download. Required for Phase 3 GPU build.
+	@if (Test-Path "data\downloads\torch-2.5.1+cu121-cp312-cp312-win_amd64.whl") { \
+		Write-Host "[install-torch-gpu] using local wheel in data/downloads/" -ForegroundColor Green ; \
+		& $(ACT); $(PIP) uninstall -y torch ; \
+		& $(ACT); $(PIP) install "data\downloads\torch-2.5.1+cu121-cp312-cp312-win_amd64.whl" --no-deps ; \
+	} else { \
+		Write-Host "[install-torch-gpu] no local wheel; downloading (~2.4 GB, slow on 4 Mbps links)" -ForegroundColor Yellow ; \
+		& $(ACT); $(PIP) uninstall -y torch ; \
+		& $(ACT); $(PIP) install "torch==2.5.1+cu121" --index-url https://download.pytorch.org/whl/cu121 --no-deps ; \
+	}
+	& $(ACT); $(PY) -c "import torch; print('torch=', torch.__version__, 'cuda=', torch.cuda.is_available(), 'device=', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A')"
+
+download-models:  ## Pre-download the sentence-transformer model into data/models/.
+	& $(ACT); $(PY) -c "import os; from sentence_transformers import SentenceTransformer; m = os.environ.get('IR_MODEL', 'sentence-transformers/all-MiniLM-L6-v2'); from services.retrieval.app.config import model_cache_dir; SentenceTransformer(m, cache_folder=str(model_cache_dir(m)))"
 
 lint:  ## Ruff + black --check.
 	& $(ACT); $(RUFF) check .
@@ -45,11 +60,20 @@ dev-preproc:  ## Run the preprocessing service in dev (port 8001).
 dev-indexing:  ## Run the indexing service in dev (port 8002).
 	& $(ACT); uvicorn services.indexing.app.service:app --reload --port 8002
 
+dev-retrieval:  ## Run the dense-retrieval service in dev (port 8003).
+	& $(ACT); uvicorn services.retrieval.app.service:app --reload --port 8003
+
 build-indexes:  ## Build the inverted, TF-IDF and BM25 indexes for both datasets (~8 min).
 	& $(ACT); $(PY) scripts/build_indexes.py
 
-smoke-search:  ## Hand-test search on the built indexes.
+build-dense:  ## Build the dense (FAISS) indexes for both datasets (~35 min CPU).
+	& $(ACT); $(PY) scripts/build_dense_indexes.py
+
+smoke-search:  ## Hand-test classical search on the built indexes.
 	& $(ACT); $(PY) scripts/smoke_search.py
+
+smoke-dense:  ## Hand-test dense search on the built FAISS indexes.
+	& $(ACT); $(PY) scripts/smoke_dense.py
 
 dev-ui:  ## Run the React UI in dev.
 	cd services/ui; npm run dev

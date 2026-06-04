@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # source of truth that the React UI and the gateway both validate against.
 DATASET_IDS: tuple[str, ...] = ("touche2020", "nq")
 
-SearchModel = Literal["inverted", "tfidf", "bm25"]
+SearchModel = Literal["inverted", "tfidf", "bm25", "dense"]
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -96,15 +96,27 @@ class SearchRequest(BaseModel):
     # 422 on it; we just ignore it at this layer (the gateway picks it up).
     model_config = ConfigDict(extra="ignore")
 
-    query_tokens: list[str] = Field(
-        ...,
+    query_tokens: list[str] | None = Field(
+        default=None,
         min_length=1,
         max_length=512,
-        description="Pre-tokenized, stemmed query (output of shared/ir_common/preprocess).",
+        description=(
+            "Pre-tokenized, stemmed query (output of shared/ir_common/preprocess). "
+            "Required for `model in {inverted, tfidf, bm25}`; ignored when "
+            "`model='dense'`."
+        ),
+    )
+    query: str | None = Field(
+        default=None,
+        max_length=2048,
+        description=(
+            "Raw query text. Required when `model='dense'` (the encoder has its "
+            "own WordPiece BPE tokenizer); ignored for the other models."
+        ),
     )
     model: SearchModel = Field("bm25", description="Which retriever to use.")
     k: int = Field(10, ge=1, le=1000, description="Number of results to return.")
-    # BM25 hyperparameters. Ignored by `tfidf` and `inverted` models.
+    # BM25 hyperparameters. Ignored by `tfidf`, `inverted`, `dense` models.
     k1: float = Field(1.5, ge=0.0, le=10.0, description="BM25 term-frequency saturation.")
     b: float = Field(0.75, ge=0.0, le=1.0, description="BM25 length normalization.")
 
@@ -182,4 +194,105 @@ class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
     service: str = "indexing"
     loaded_dataset: str | None = None
+    version: str = "0.1.0"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 3 — Dense retrieval (port 8003)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class DenseBuildRequest(BaseModel):
+    """Body for ``POST /retrieval/{dataset_id}/build`` (Phase 3)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model_name: str = Field(
+        default="sentence-transformers/all-MiniLM-L6-v2",
+        description="Hugging Face model name. Must be a sentence-transformer.",
+    )
+    batch_size: int = Field(256, ge=1, le=2048, description="Encode batch size.")
+
+
+class DenseStatsResponse(BaseModel):
+    """Response to ``GET /retrieval/{dataset_id}/stats``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_id: str
+    exists: bool
+    loaded: bool = False
+    num_vectors: int = 0
+    dim: int = 0
+    index_type: str = "IndexFlatIP"
+    model_name: str = ""
+    build_seconds: float = 0.0
+    build_at: str = ""
+    size_mb: float = 0.0
+
+
+class DenseEmbedRequest(BaseModel):
+    """Body for ``POST /retrieval/embed`` (one-shot embed)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    texts: list[str] = Field(
+        ...,
+        min_length=1,
+        max_length=1024,
+        description="Raw texts to embed (1-1024 per call).",
+    )
+    model_name: str | None = Field(
+        default=None,
+        description=(
+            "Override the default model. If None, the service default "
+            "(sentence-transformers/all-MiniLM-L6-v2) is used."
+        ),
+    )
+
+
+class DenseEmbedResponse(BaseModel):
+    """Response to ``POST /retrieval/embed``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model_name: str
+    dim: int
+    vectors: list[list[float]]
+    latency_ms: int
+
+
+class DenseSearchHit(BaseModel):
+    """One hit in a ``DenseSearchResponse``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rank: int = Field(..., ge=1)
+    doc_id: str
+    score: float
+
+
+class DenseSearchResponse(BaseModel):
+    """Response to ``POST /retrieval/{dataset_id}/search``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_id: str
+    model_name: str
+    k: int
+    latency_ms: int
+    results: list[DenseSearchHit]
+    cached: bool = False
+
+
+class RetrievalHealthResponse(BaseModel):
+    """Response to ``GET /health`` on the retrieval service (port 8003)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ok"] = "ok"
+    service: str = "retrieval"
+    loaded_dataset: str | None = None
+    model_loaded: bool = False
+    model_name: str = ""
     version: str = "0.1.0"

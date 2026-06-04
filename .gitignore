@@ -53,7 +53,9 @@ data/raw/*
 data/processed/*
 data/indexes/*
 data/faiss/*
+data/models/*
 data/user_logs/*
+data/downloads/*
 !data/**/.gitkeep
 # Logs + scratch files written at data/ root by background scripts
 data/*.log

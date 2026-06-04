@@ -16,7 +16,15 @@ nltk>=3.9
 
 # ─── Vector / Embedding / ML ──────────────────────────────
 sentence-transformers>=3
-torch>=2.2
+# torch pinned to the CUDA 12.1 build for Phase 3 dense retrieval on
+# GTX 1650. The CPU variant (~200 MB wheel) was the Phase 0/1/2 default;
+# the CUDA 12.1 wheel is ~2.4 GB because it bundles the CUDA runtime
+# libraries. Install with:
+#   pip install -r requirements.txt \
+#       --extra-index-url https://download.pytorch.org/whl/cu121
+# (or use the local wheel: pip install data/downloads/torch-2.5.1+cu121-*.whl)
+# Override ``IR_EMBED_DEVICE=cpu`` to force CPU mode.
+torch==2.5.1+cu121
 faiss-cpu>=1.8
 # gensim skipped (no cp312 wheel path conflict — re-evaluate in Phase 3)
 # BM25 (Phase 2): bm25s is the chosen library — ~50x faster than rank_bm25 on

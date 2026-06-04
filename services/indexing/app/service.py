@@ -393,14 +393,34 @@ def search(dataset_id: str, req: SearchRequest) -> SearchResponse:
 
     The body is a ``SearchRequest`` (see ``shared/ir_common.schemas``).
     The query must be pre-tokenized (output of the preprocessing
-    service); the indexing service does not call ``preprocess()`` at
-    query time. (The gateway in Phase 6 will call preprocessing first.)
+    service) for the three classical models. For ``model='dense'``
+    the indexing service returns 400 because dense retrieval lives
+    on the retrieval service (:8003). The gateway in Phase 6 routes
+    the call to the right port.
     """
     if not _is_known(dataset_id):
         raise HTTPException(status_code=400, detail=f"Unknown dataset_id: {dataset_id!r}")
+    if req.model == "dense":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Dense retrieval is served by the retrieval service on :8003 "
+                "(POST /retrieval/{dataset_id}/search). This service handles "
+                "inverted, tfidf, and bm25 only."
+            ),
+        )
+    if not req.query_tokens:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "'query_tokens' is required for model="
+                f"{req.model!r}; the indexing service does not re-tokenize."
+            ),
+        )
 
     started = time.perf_counter()
     model = req.model
+    query_tokens: list[str] = req.query_tokens
 
     if model == "inverted":
         # The InvertedIndex isn't a native ranked retriever; we sum
@@ -412,7 +432,7 @@ def search(dataset_id: str, req: SearchRequest) -> SearchResponse:
         except FileNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e)) from e
         scores: dict[str, float] = {}
-        for tok in req.query_tokens:
+        for tok in query_tokens:
             for p in inv.get_postings(tok):
                 scores[p.doc_id] = scores.get(p.doc_id, 0.0) + p.tf
         top = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))[: req.k]
@@ -435,7 +455,7 @@ def search(dataset_id: str, req: SearchRequest) -> SearchResponse:
             tfidf = _load_tfidf(dataset_id)
         except FileNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e)) from e
-        hits: list[tfidf_mod.TfidfHit] = tfidf.search(req.query_tokens, k=req.k)
+        hits: list[tfidf_mod.TfidfHit] = tfidf.search(query_tokens, k=req.k)
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         return SearchResponse(
             dataset_id=dataset_id,
@@ -452,7 +472,7 @@ def search(dataset_id: str, req: SearchRequest) -> SearchResponse:
             raise HTTPException(status_code=404, detail=str(e)) from e
         bm25_hits: list[bm25_mod.BM25Hit]
         bm25_hits, cached = bm25.search(
-            req.query_tokens,
+            query_tokens,
             k=req.k,
             k1=req.k1,
             b=req.b,
