@@ -46,10 +46,12 @@ DEFAULT_MODEL_NAME: str = "sentence-transformers/all-MiniLM-L6-v2"
 
 # Batch size for document encoding. 256 is the sweet spot on 12-core CPU
 # without blowing RAM: 256 * 128 tokens * 4 bytes ≈ 130 KB activations.
-# On a 4 GB GPU (e.g. GTX 1650) with fp16, 512 fits comfortably and is
-# ~10% faster; the build script auto-bumps when a GPU is detected.
+# Empirically (5,000 touche2020 docs, mean 641 chars, GTX 1650, fp16):
+#   bs=256 -> 72 docs/sec, bs=512 -> 69 docs/sec, bs=1024 -> 66 docs/sec.
+# Larger batches actually slowed us down (encoder forward pass is the
+# bottleneck, not the GPU's matrix-multiply throughput). 256 wins.
 DEFAULT_BATCH_SIZE: int = 256
-DEFAULT_BATCH_SIZE_GPU: int = 512
+DEFAULT_BATCH_SIZE_GPU: int = 256
 
 # Max sequence length the encoder will see. MiniLM truncates at 256
 # tokens; longer docs are clipped (the head and tail of each doc).

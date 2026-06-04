@@ -47,6 +47,7 @@ import numpy as np
 # Force UTF-8 on Windows before any logging/output.
 from services.retrieval.app.config import (  # noqa: E402
     DEFAULT_BATCH_SIZE,
+    DEFAULT_BATCH_SIZE_GPU,
     DEFAULT_MODEL_NAME,
     EMBED_DEVICE,
     MAX_SEQ_LENGTH,
@@ -91,12 +92,16 @@ class Embedder:
     def __init__(
         self,
         default_model_name: str = DEFAULT_MODEL_NAME,
-        batch_size: int = DEFAULT_BATCH_SIZE,
+        batch_size: int | None = None,
         max_seq_length: int = MAX_SEQ_LENGTH,
         device: str = EMBED_DEVICE,
         use_fp16: bool = USE_FP16,
     ) -> None:
         self.default_model_name: str = default_model_name
+        # Default to the GPU-friendly batch size when CUDA is available,
+        # else the CPU-friendly size. Callers can still override.
+        if batch_size is None:
+            batch_size = DEFAULT_BATCH_SIZE_GPU if EMBED_DEVICE == "cuda" else DEFAULT_BATCH_SIZE
         self.batch_size: int = batch_size
         self.max_seq_length: int = max_seq_length
         self.device: str = device
@@ -205,8 +210,22 @@ class Embedder:
         # env vars above take effect at torch import time, but we also
         # call set_num_threads explicitly so users who already had
         # torch loaded still get the right config.
+        # ``set_num_interop_threads`` MUST be called before any parallel
+        # work has started; on the second ``Embedder`` in a test it will
+        # raise ``RuntimeError``. We guard with try/except below so
+        # multi-Embedder scenarios (e.g. a smoke test instantiating
+        # several) don't crash on the second instance. The first call
+        # still wins.
         torch.set_num_threads(int(os.environ.get("OMP_NUM_THREADS", "6")))
-        torch.set_num_interop_threads(int(os.environ.get("MKL_NUM_THREADS", "6")))
+        try:
+            current = torch.get_num_interop_threads()
+        except Exception:
+            current = 0
+        if current != int(os.environ.get("MKL_NUM_THREADS", "6")):
+            try:
+                torch.set_num_interop_threads(int(os.environ.get("MKL_NUM_THREADS", "6")))
+            except (RuntimeError, AttributeError):
+                pass
 
         local = model_cache_dir(model_name)
         cache_folder = str(local) if local.exists() else None
@@ -216,6 +235,14 @@ class Embedder:
             cache_folder=cache_folder,
         )
         st.max_seq_length = self.max_seq_length
+        # ``get_sentence_embedding_dimension`` was renamed to
+        # ``get_embedding_dimension`` in sentence-transformers 5.x; the
+        # old name is deprecated but still works. Use the new name with
+        # a fallback for the few older 4.x versions in the wild.
+        get_dim = getattr(st, "get_embedding_dimension", None) or getattr(
+            st, "get_sentence_embedding_dimension"
+        )
+        dim = int(get_dim())
         # Cast the underlying transformer to half precision on GPU. This
         # roughly doubles throughput on Turing+ with < 1% recall drop
         # for MiniLM-L6-v2. The encoder's output is still cast to
@@ -230,7 +257,6 @@ class Embedder:
                 # If the model architecture doesn't support half, just
                 # leave it in fp32. The encode path will still work.
                 pass
-        dim = int(st.get_sentence_embedding_dimension())
         self._cache[model_name] = (st, dim)
         return st, dim
 
