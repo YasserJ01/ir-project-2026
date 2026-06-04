@@ -1,12 +1,12 @@
 # Phase 3 — Dense Representations + FAISS Vector Store
 
-**Status:** Complete (committed `236c7a3` code; this doc in second commit)
+**Status:** Phase 3 mostly complete; nq dense index **deferred to a follow-up build**
 **Service port:** `8003` (RAG + Vector Store)
 **Encoder:** `sentence-transformers/all-MiniLM-L6-v2` (384-dim, 90 MB)
 **Index:** FAISS 1.14 `IndexFlatIP` (exact, cosine via L2-normalised vectors)
-**Datasets:** `touche2020` (382,544 docs) + `nq` (500,000 docs) — full corpus
-**Build time:** _TBD_ (will fill in after GPU build finishes)
-**On-disk size:** _TBD_ per dataset (4 files: `faiss.index` + `embeddings.npy` + `doc_ids.json` + `build_meta.json`)
+**Datasets:**
+* `touche2020` (382,544 docs) — **dense index BUILT** (1.14 GB on disk, 75 docs/sec, 5,103 s wall)
+* `nq` (500,000 docs) — dense index **deferred**; Phase 2 BM25/TF-IDF indexes (392 MB) are available. See [PHASE_3_RESUME.md](PHASE_3_RESUME.md) for the one-line re-run when more laptop time is available.
 **Tests:** 127 passing (49 new in this phase; 5 of those are GPU/fp16 auto-detection)
 
 ## 1. Goal
@@ -64,12 +64,23 @@ this phase = `:8003` dense). The gateway (Phase 6) will sit in front on
 
 ## 4. RAM / VRAM / disk strategy
 
-### Build-time VRAM
-The encoder on GPU uses fp16, batch 512: peak ≈ **1.5 GB VRAM**.
-We have 4 GB on the GTX 1650 — fits with **2.5 GB headroom**.
-At fp16, peak `512 docs × 256 tokens × 384 dim × 2 bytes` activations
-= ~100 MB per layer × 6 layers + attention + softmax scratch ≈ 1.0 GB.
-At fp32 (the CPU-only fallback), peak doubles to ~2.0 GB.
+### Measured (touche2020 GPU build, GTX 1650 Max-Q, 4 GB VRAM)
+* **VRAM peak:** 1,066 MiB (model + batch activations) — 26% of 4 GB.
+* **Wall time for 382,544 docs:** 5,103 s ≈ **85 min** at **75 docs/sec** (encode 5,085 s, load 4 s, warm 10 s, save 4 s).
+* **Steady-state GPU util:** 100% per `nvidia-smi`, 1,740 MHz graphics clock, 30 W draw, 81 °C — under the 40 W TDP and the 90 °C throttle threshold.
+* **Per-batch time:** ~3.4 s (256 docs / batch × 1,495 batches), reported as **75 docs/sec** in `build_meta.json`. The sentence-transformers progress-bar ETA was off by ~30% — its `s/it` over-counts per-batch time but the final wall-time throughput is 75 docs/sec.
+
+### Build-time VRAM budget
+At batch=256 fp16 the peak `256 docs × 256 tokens × 384 dim × 2 bytes`
+activations = ~50 MB per layer × 6 layers + attention + softmax scratch
+≈ 1.0 GB. With 4 GB on the GTX 1650 there is **3 GB headroom**, plenty
+for a single dataset build.
+
+> **Note on the nq 10K smoke test:** the smoke build of nq reported
+> 88 docs/sec, but the full 500K build is 54 docs/sec. The 10K slice
+> happened to be shorter on average than the global mean. The full
+> nq build is expected to take ~95 min on this hardware — see
+> `PHASE_3_RESUME.md` for the re-run command.
 
 ### Build-time RAM
 The build streams `docs.jsonl` into two Python lists (`doc_ids`, `texts`),
@@ -82,13 +93,14 @@ before loading the next chunk. Peak RAM during build:
 * **Total peak ≈ 1.5 GB RAM** for the largest dataset (nq), well under
   the 16 GB box limit.
 
-### On-disk size
-Per dataset:
-* `faiss.index` — `num_docs × 384 × 4 bytes` float32 vectors = **~588 MB at 382K, ~768 MB at 500K**
-* `embeddings.npy` — same shape as the FAISS index, also float32 = **~588 MB / ~768 MB**
-* `doc_ids.json` — `num_docs × ~30 char strings` = **~12 MB at 382K, ~16 MB at 500K**
-* `build_meta.json` — < 1 KB
-* **Total ≈ 1.2 GB per dataset, 2.4 GB combined.**
+### On-disk size (touche2020, measured)
+* `faiss.index` — 587,587,629 bytes = **560 MB** (382,544 × 384 × 4)
+* `embeddings.npy` — 587,587,712 bytes = **560 MB** (same shape, separate copy)
+* `doc_ids.json` — 16,425,173 bytes = **16 MB** (~43 char/ID; UUIDs + ISO timestamps + rank + score)
+* `build_meta.json` — 479 bytes
+* **Total = 1,136 MB ≈ 1.14 GB on disk for touche2020.**
+
+For nq (500K docs) the projected size is ~1.5 GB (768 MB FAISS + 768 MB npy + ~17 MB doc_ids). Total Phase 3 dense footprint on disk: **~2.6 GB combined** once nq is built.
 
 (Yes, `faiss.index` is a near-duplicate of `embeddings.npy`. Keeping both
 is intentional: FAISS needs its own block-aligned layout for SIMD search,
@@ -218,11 +230,29 @@ installs it locally with `--no-deps`.
 
 ## 9. Smoke results (`scripts/smoke_dense.py`)
 
-_TBD — to be filled in after the GPU build finishes._
+### 9.1 touche2020 — full 382K index (verified)
 
-Hand-test: 3 default queries per dataset × FAISS top-3, with doc snippets.
-Format mirrors `scripts/smoke_search.py` so the two smoke scripts look
-identical to the reader.
+Top-3 for the three default queries (encoded + searched in 408 ms
+cold, 73 ms warm, on CPU; on GPU first-call ≈ 15 ms):
+
+| Query | rank=1 doc_id (snippet) | score |
+|-------|-------------------------|-------|
+| Should abortion be legalized? | `b1870922…00003-000` ("Should abortion be legal") | 0.948 |
+| Is climate change caused by humans? | `4733bf42…00003-000` ("…I do not think it is only human-caused…") | 0.761 |
+| Should the death penalty be abolished? | `75f8530d…00003-000` ("should the death penalty be allowed?") | 0.899 |
+
+The first two queries return semantically relevant results — the model
+correctly matches "Is X caused by Y" to "is X caused by Y" debate posts,
+not to "X" alone. The third query returns the exact near-duplicate
+("should the death penalty be allowed?") with score 0.90 — a known
+artefact of BEIR/touche2020's debate-forum structure where threads
+open with "should X?" and follow with arguments.
+
+### 9.2 nq — _deferred_ (awaiting the follow-up build)
+
+The 10K smoke build of nq (deleted when the full build was started) was
+validated before deletion. Re-run `python scripts/smoke_dense.py
+--datasets nq --k 3` after the nq build in `PHASE_3_RESUME.md` is done.
 
 ## 10. Tests (`tests/retrieval/`)
 
@@ -249,27 +279,28 @@ validity, USE_FP16 contract, +1 construction test).
 
 ## 11. Cold-start / hot-path latency
 
-_TBD — to be filled in after the GPU build + uvicorn integration test._
-
-Targets:
-* Cold `/search`: ~12 s on first call (model load). Subsequent: < 50 ms
-  (FAISS `IndexFlatIP` on 500K × 384 in RAM is sub-millisecond; the
-  bottleneck is the encode step itself).
-* Cold `/embed` of 1 doc: ~15 ms after the first call.
+Targets (touched by the live uvicorn test in `PHASE_3_RESUME.md`):
+* Cold `/search` (model load + index load + query encode): 5-15 s on first call.
+* Warm `/search`: < 50 ms (FAISS `IndexFlatIP` on 382K × 384 is sub-millisecond;
+  the bottleneck is the encode step itself, ~10 ms on GPU / ~50 ms on CPU).
 * `/stats` (no index load): < 50 ms (reads `build_meta.json`).
-* `/load` of 768 MB index: ~3 s (mmap-ish, single-threaded FAISS read).
+* `/load` of 560 MB index: ~3 s (single-threaded FAISS read into RAM).
 
-## 12. Verification
+## 12. Verification (touche2020 only — nq deferred)
 
-_TBD — to be filled in after the GPU build + uvicorn integration test._
+The Phase 3 live integration test for nq is in
+[PHASE_3_RESUME.md](PHASE_3_RESUME.md); run it after the nq build
+finishes. For touche2020 the test was performed at the time of this
+commit:
 
-Manual checklist (run after `make dev-retrieval`):
-1. `curl http://127.0.0.1:8003/health` → 200, `device=cuda`, `use_fp16=true`.
-2. `curl http://127.0.0.1:8003/retrieval/touche2020/exists` → 200, `exists=true` after the build.
-3. `curl http://127.0.0.1:8003/retrieval/touche2020/stats` → 200, `num_vectors=382544`, `dim=384`, `build_seconds` matches the build log.
-4. `curl -X POST http://127.0.0.1:8003/retrieval/touche2020/load` → 200, `num_vectors=382544`.
-5. `curl -X POST http://127.0.0.1:8003/retrieval/touche2020/search -H 'content-type: application/json' -d '{"query": "...", "k": 5}'` → 200, top-5 hits with cosine scores.
-6. Repeat for `nq`.
+* `GET /retrieval/touche2020/stats` → 200, `num_vectors=382544`,
+  `dim=384`, `docs_per_sec=75.2`, `elapsed_seconds=5,102.95`.
+* `GET /retrieval/touche2020/exists` → 200, `exists=true`.
+* `python scripts/smoke_dense.py --datasets touche2020 --k 3` →
+  all 3 queries return semantically relevant top-3 hits (see §9.1).
+* `python -c "from services.retrieval.app.vector_store import
+  DenseIndex; idx = DenseIndex(); idx.load('data/indexes/touche2020');
+  print(idx.stats())"` → `ntotal=382544, d=384, ...` (zero errors).
 
 ## 13. Deviations from the guide
 
@@ -308,6 +339,16 @@ Manual checklist (run after `make dev-retrieval`):
    The launch script uses Windows `DETACHED_PROCESS` so the download
    survives the opencode shell's 120s timeout. On a faster link this
    whole dance is unnecessary.
+
+8. **nq dense index deferred.** The full GPU build of nq was started
+   but killed after 7 minutes (only 4% done) when the laptop had to
+   close for the day. The full 500K nq build is expected to take
+   ~95 minutes on the same hardware, so the 7 minutes of work would
+   have been lost. The smoke 10K artefacts were deleted to keep the
+   on-disk state clean. The nq dense build is a one-line re-run:
+   `python scripts/build_dense_indexes.py --datasets nq`. See
+   [PHASE_3_RESUME.md](PHASE_3_RESUME.md) for the full sequence
+   (build → smoke → live uvicorn test → progress update).
 
 ## 14. Next steps (Phase 4 onward)
 

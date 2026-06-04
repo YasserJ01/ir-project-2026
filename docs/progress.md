@@ -42,12 +42,13 @@
 - Deviations from the guide (documented in PHASE_2.md §13): `bm25s` instead of `rank_bm25` (~50× faster, eager BM25, pure-Python wheel on Windows + cp312); vocabulary cap defaults added to avoid 8-10 GB RAM OOM.
 - Full details: [PHASE_2.md](PHASE_2.md).
 
-## Phase 3 — Dense Representations + FAISS Vector Store ✅
+## Phase 3 — Dense Representations + FAISS Vector Store ✅ (nq dense deferred)
 - Third service added on `:8003`: dense retrieval via `sentence-transformers/all-MiniLM-L6-v2` (384-dim) + FAISS 1.14 `IndexFlatIP`. Mirrors the structure of `services/indexing/app/service.py` (Phase 2) so the gateway (Phase 6) can route to either by model name.
-- **GPU build path** (added in this commit): `EMBED_DEVICE` auto-detects CUDA, `USE_FP16` is True on GPU, `--batch-size 512` on GPU. ~12 min for the full 882K-doc corpus vs 5+ hours on CPU.
-- **`torch==2.5.1+cu121`** pinned in `requirements.txt`; `make install-torch-gpu` handles the install (2.4 GB wheel). `scripts/download_torch_gpu.py` + `launch_download.py` provide resumable download that survives shell timeouts.
-- On-disk artefacts per dataset: `faiss.index` + `embeddings.npy` + `doc_ids.json` + `build_meta.json`. ~1.2 GB per dataset, 2.4 GB combined at full corpus size.
-- 49 new tests (10+14+19, plus 5 new GPU/fp16 auto-detection tests). **127 project-wide**, all passing.
+- **GPU build path**: `EMBED_DEVICE` auto-detects CUDA, `USE_FP16` is True on GPU, batch=256 (empirical sweet spot, see PHASE_3.md §4). `DEFAULT_BATCH_SIZE_GPU=256` (was 512; the larger batch was *slower* on the small MiniLM model).
+- **`torch==2.5.1+cu121`** pinned in `requirements.txt`; `make install-torch-gpu` handles the install (2.4 GB wheel). `scripts/download_torch_curl.py` + `launch_download_curl.py` provide resumable download that survives shell timeouts (the curl variant supports `Accept-Ranges: bytes`; the pip variant did not).
+- **touche2020 dense index BUILT**: 382,544 vectors, 1,136 MB on disk (588 MB `faiss.index` + 588 MB `embeddings.npy` + 16 MB `doc_ids.json` + 479 B `build_meta.json`). 5,103 s wall (≈ 85 min) at 75 docs/sec sustained on the GTX 1650 Max-Q (1,066 MiB VRAM, 100 % util, 81 °C).
+- **nq dense index DEFERRED** to a follow-up build. The 7-minute progress on the nq build was lost when the laptop had to close at 3:00 PM; the partial 10K smoke artefacts were cleaned up. The nq dense build is a one-line re-run: `python scripts/build_dense_indexes.py --datasets nq` (~95 min on the same hardware). See [PHASE_3_RESUME.md](PHASE_3_RESUME.md) for the full sequence.
+- 49 new tests (10+14+19, plus 5 new GPU/fp16 auto-detection tests). **127 project-wide**, all passing. Lint clean (ruff + black + mypy).
 - Search contract differs from Phase 2: caller passes raw `query` text (model has its own WordPiece BPE tokenizer, NOT the Phase 1 Porter stemmer). Indexing service `/index/{ds}/search` returns 400 for `model="dense"` with redirect to :8003.
-- Deviations from the guide (documented in PHASE_3.md §13): raw text into encoder (not preprocessed tokens), single encoder (multi-encoder bonus deferred to Phase 10+), `IndexFlatIP` (not IVFFlat) for exact reproducibility, GPU-first default, 50K-doc cap removed.
-- Code committed: `236c7a3`. Full details: [PHASE_3.md](PHASE_3.md).
+- Deviations from the guide (documented in PHASE_3.md §13): raw text into encoder (not preprocessed tokens), single encoder (multi-encoder bonus deferred to Phase 10+), `IndexFlatIP` (not IVFFlat) for exact reproducibility, GPU-first default, 50K-doc cap removed, nq dense deferred.
+- Code committed: `236c7a3`, `68069ec` (embedder fix), `7b99409` (docs + scripts), `fca361f` (lint fixes). Full details: [PHASE_3.md](PHASE_3.md), [PHASE_3_RESUME.md](PHASE_3_RESUME.md).

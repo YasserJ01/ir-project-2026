@@ -98,9 +98,10 @@ On a CUDA-capable host (GTX 1650, RTX 30/40-series, A100, etc.):
 2. On `"cuda"`, `USE_FP16 = True`. The encoder is cast to half precision
    via `st[0].auto_model = st[0].auto_model.half()` in
    `services/retrieval/app/embedder.py`.
-3. Default batch size is 512 on GPU (vs 256 on CPU). At 512 docs × 256
-   tokens × 384 dim × 2 bytes (fp16), peak activation memory is
-   ~1.5 GB VRAM.
+3. Default batch size is 256 on GPU (empirically the sweet spot;
+   512 and 1024 were *slower* on the small MiniLM model — see
+   PHASE_3.md §4). At 256 docs × 256 tokens × 384 dim × 2 bytes
+   (fp16), peak activation memory is ~1.0 GB VRAM.
 4. `torch` must be installed with CUDA support. The default `pip install
    torch` pulls the CPU-only wheel (~200 MB); for GPU you need the
    `+cu121` variant (~2.4 GB on PyPI). `make install-torch-gpu` handles

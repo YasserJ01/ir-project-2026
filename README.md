@@ -11,7 +11,7 @@
 | 0 — Foundation, Setup & Planning | ✅ done | [docs/PHASE_0.md](docs/PHASE_0.md) |
 | 1 — Data Acquisition & Preprocessing | ✅ done | [docs/PHASE_1.md](docs/PHASE_1.md) |
 | 2 — Indexing | ✅ done | [docs/PHASE_2.md](docs/PHASE_2.md) |
-| 3 — Dense Representations + FAISS | ✅ done | [docs/PHASE_3.md](docs/PHASE_3.md) |
+| 3 — Dense Representations + FAISS | 🟡 touch built, nq deferred | [docs/PHASE_3.md](docs/PHASE_3.md), [docs/PHASE_3_RESUME.md](docs/PHASE_3_RESUME.md) |
 | 4 — Query Processing & Refinement | ⏳ upcoming | — |
 | 5 — Query Matching, Ranking & Hybrid | ⏳ upcoming | — |
 | 6 — Service-Oriented Architecture (SOA) | ⏳ upcoming | — |
