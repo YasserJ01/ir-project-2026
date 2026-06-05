@@ -296,3 +296,128 @@ class RetrievalHealthResponse(BaseModel):
     model_loaded: bool = False
     model_name: str = ""
     version: str = "0.1.0"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 4 — Query refinement (port 8004)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class RefineRequest(BaseModel):
+    """Body for ``POST /refine`` (Phase 4).
+
+    The request takes a raw user query and optional user-id + toggles for
+    each refinement stage. The service returns the enriched query,
+    pre-tokenized tokens, and a per-token weight map (defaults to 1.0,
+    with ``enable_personalization=true`` boosting terms the user has
+    previously clicked in).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    query: str = Field(
+        ...,
+        min_length=1,
+        max_length=2048,
+        description="Raw user query (English assumed; mixed case OK).",
+    )
+    user_id: str = Field(
+        default="anonymous",
+        max_length=128,
+        description=(
+            "Identifier for personalization. Looks up "
+            "``data/user_logs/<user_id>.jsonl``. Missing/empty log file = "
+            "personalization is a no-op."
+        ),
+    )
+    enable_spell: bool = Field(True, description="Apply SymSpell edit-distance correction.")
+    enable_synonyms: bool = Field(
+        True, description="Expand each non-stopword with 1-2 WordNet synonyms."
+    )
+    enable_grammar: bool = Field(
+        False,
+        description=(
+            "Apply language-tool-python grammar correction. **Off by default** because "
+            "it spins up a Java subprocess and downloads a ~200 MB .jar on first use. "
+            "Enable for the highest quality (slowest cold start)."
+        ),
+    )
+    enable_personalization: bool = Field(
+        True, description="Apply user-log-based term-weight boost."
+    )
+    # Synonym expansion knob (per guide 4.2: "1-2 synonyms per non-stopword").
+    synonym_count: int = Field(
+        2,
+        ge=0,
+        le=5,
+        description="Max synonyms per token (0 disables synonym stage regardless of toggle).",
+    )
+
+
+class RefinedToken(BaseModel):
+    """One token in the refined response: (term, weight)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(
+        ..., description="Preprocessed + stemmed token (output of shared/ir_common/preprocess)."
+    )
+    weight: float = Field(
+        1.0, ge=0.0, description="Personalization boost multiplier (1.0 = no boost)."
+    )
+    added_by: Literal["original", "spell", "synonym", "grammar", "personalization"] = Field(
+        "original",
+        description=(
+            "Which refinement stage introduced this token. ``original`` means it "
+            "was in the cleaned input; ``spell`` means a corrected form of an "
+            "original token (same surface text but different letters were wrong); "
+            "``synonym`` means it came from WordNet expansion; ``personalization`` "
+            "means it was a user-history term that got added to the weight map."
+        ),
+    )
+
+
+class RefineResponse(BaseModel):
+    """Response to ``POST /refine``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(..., description="Original query, echoed back.")
+    refined_query: str = Field(
+        ..., description="Query after grammar + spell correction (before synonym expansion)."
+    )
+    expanded_query: str = Field(
+        ...,
+        description="Final query string used for tokenization (cleaned + synonyms joined).",
+    )
+    tokens: list[str] = Field(
+        ..., description="Preprocessed, stemmed token list (shared preprocess)."
+    )
+    weighted_tokens: list[RefinedToken] = Field(
+        ..., description="Same tokens + per-token weights for personalized scoring."
+    )
+    # Per-stage trace so a debug client can see what each module did.
+    stages: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Mapping of stage-name -> output. Keys: ``grammar``, ``spell``, ``synonyms``, "
+            "``personalization``. Empty string = stage was a no-op or disabled."
+        ),
+    )
+    latency_ms: int = Field(..., ge=0, description="Total pipeline latency in milliseconds.")
+    user_id: str = Field(..., description="User id that was looked up.")
+
+
+class RefinementHealthResponse(BaseModel):
+    """Response to ``GET /health`` on the refinement service (port 8004)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ok"] = "ok"
+    service: str = "refinement"
+    spell_loaded: bool = False
+    wordnet_loaded: bool = False
+    grammar_loaded: bool = False
+    grammar_enabled: bool = False
+    user_log_dir: str = ""
+    version: str = "0.1.0"

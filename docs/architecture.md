@@ -1,6 +1,6 @@
 # Architecture
 
-> Updated through **Phase 3**. Phase 6 will expand this with the gateway
+> Updated through **Phase 4**. Phase 6 will expand this with the gateway
 > routing rules, error-handling patterns, and the per-service health
 > contract.
 
@@ -26,7 +26,7 @@ flowchart TD
 | preprocessing | 8001 | Text preprocessing (Phase 1 pipeline) | ✅ Phase 1 |
 | indexing | 8002 | Inverted index, TF-IDF, BM25 (lexical) | ✅ Phase 2 |
 | retrieval | 8003 | Embeddings, FAISS (semantic) | ✅ Phase 3 |
-| refinement | 8004 | Query refinement (spell, synonyms, expand) | ⏳ Phase 4 |
+| refinement | 8004 | Query refinement (spell, synonyms, grammar, personalize) | ✅ Phase 4 |
 | rag | 8005 | RAG answer generation | ⏳ Phase 8 |
 | ui | 5173 / 3000 | React frontend (Vite dev / nginx prod) | ✅ Phase 0 |
 
@@ -81,6 +81,15 @@ data/
 ├── models/                         # sentence-transformers cache (gitignored)
 │   └── sentence-transformers__all-MiniLM-L6-v2/
 │
+├── dicts/                          # Phase 4 spell dictionaries (gitignored)
+│   └── frequency_dictionary_en_82_765.txt  # SymSpell, 1.3 MB
+│
+├── user_logs/                      # Phase 4 personalization (gitignored)
+│   ├── user_1.jsonl                # 53 synthetic past queries + click counts
+│   └── user_2.jsonl
+│
+├── grammar/                        # Phase 4 LanguageTool .jar cache (gitignored, opt-in)
+│
 ├── downloads/                      # misc download cache (gitignored)
 │
 ├── *.log                           # runtime logs (gitignored)
@@ -109,4 +118,37 @@ On a CUDA-capable host (GTX 1650, RTX 30/40-series, A100, etc.):
 This is the first of (likely) two GPU services: RAG (Phase 8) will also
 load a 1-3B LLM in fp16, which will share the 4 GB VRAM with the encoder
 cache (LRU-1: one model in VRAM at a time, switch evicts the other).
+
+## Query refinement pipeline (Phase 4)
+
+The refinement service sits **before** both lexical and dense search
+in the gateway's request flow:
+
+```
+user query "recieve teh helo from teh park, with eiffel"
+        │
+        ▼
+   :8004  Refinement service
+        │
+        │ 1. grammar (opt-in; off by default)  ─▶ LanguageTool Java subprocess
+        │ 2. spell (SymSpell + Damerau)        ─▶ "receive tech help from tech park, with eiffel"
+        │ 3. synonyms (WordNet)                ─▶ "... eiffel column pillar ..."
+        │ 4. tokenize (shared preprocess)      ─▶ ["receiv", "tech", "help", ...]
+        │ 5. personalize (user_log.jsonl)      ─▶ [{"token": "eiffel", "weight": 2.0}, ...]
+        │
+        ▼
+   { "refined_query", "expanded_query", "tokens", "weighted_tokens", "stages" }
+        │
+        ▼
+   :8002 / :8003 search (Phase 5+)
+```
+
+The output of `/refine` is the canonical "clean user query" the rest
+of the system uses. Phase 5's hybrid retriever will read
+`weighted_tokens[*].weight` and apply it as a term-frequency
+multiplier on the BM25 path (`tf *= weight`). The dense retriever
+ignores weights (the encoder is a black box), so personalization
+only affects lexical search — that's intentional, since user
+preferences for "climate" terms are best expressed as BM25
+boosts, not as different query embeddings.
 

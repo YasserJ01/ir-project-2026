@@ -10,7 +10,7 @@ BLACK  := $(PY) -m black
 MYPY   := $(PY) -m mypy
 PYTEST := $(PY) -m pytest
 
-.PHONY: help install install-torch-gpu venv lint fmt type test up down dev-ui dev-gateway dev-preproc dev-indexing dev-retrieval build-indexes build-dense smoke-search smoke-dense download-models eval clean ingest ingest-a ingest-b tokenize
+.PHONY: help install install-torch-gpu venv lint fmt type test up down dev-ui dev-gateway dev-preproc dev-indexing dev-retrieval dev-refinement build-indexes build-dense smoke-search smoke-dense smoke-refine download-models download-symspell-dict seed-user-logs eval clean ingest ingest-a ingest-b tokenize
 
 help:  ## Show this help.
 	@Select-String -Path "$($PSCommandPath)" -Pattern "^[a-zA-Z_-]+:.*?## " | ForEach-Object { $$_.Line }
@@ -63,6 +63,9 @@ dev-indexing:  ## Run the indexing service in dev (port 8002).
 dev-retrieval:  ## Run the dense-retrieval service in dev (port 8003).
 	& $(ACT); uvicorn services.retrieval.app.service:app --reload --port 8003
 
+dev-refinement:  ## Run the query-refinement service in dev (port 8004).
+	& $(ACT); uvicorn services.refinement.app.service:app --reload --port 8004
+
 build-indexes:  ## Build the inverted, TF-IDF and BM25 indexes for both datasets (~8 min).
 	& $(ACT); $(PY) scripts/build_indexes.py
 
@@ -74,6 +77,16 @@ smoke-search:  ## Hand-test classical search on the built indexes.
 
 smoke-dense:  ## Hand-test dense search on the built FAISS indexes.
 	& $(ACT); $(PY) scripts/smoke_dense.py
+
+smoke-refine:  ## Hand-test query refinement on the running :8004 service.
+	& $(ACT); $(PY) scripts/smoke_refine.py
+
+download-symspell-dict:  ## Fetch the SymSpell frequency dictionary (~1.3 MB) into data/dicts/.
+	& $(ACT); $(PY) scripts/download_symspell_dict.py
+
+seed-user-logs:  ## Generate synthetic user-search history (50+ past queries) for personalization demos.
+	& $(ACT); $(PY) scripts/seed_user_logs.py
+	& $(ACT); $(PY) scripts/seed_user_logs.py --user-id user_2 --count 30
 
 dev-ui:  ## Run the React UI in dev.
 	cd services/ui; npm run dev

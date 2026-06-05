@@ -53,3 +53,16 @@
 - Search contract differs from Phase 2: caller passes raw `query` text (model has its own WordPiece BPE tokenizer, NOT the Phase 1 Porter stemmer). Indexing service `/index/{ds}/search` returns 400 for `model="dense"` with redirect to :8003.
 - Deviations from the guide (documented in PHASE_3.md §13): raw text into encoder (not preprocessed tokens), single encoder (multi-encoder bonus deferred to Phase 10+), `IndexFlatIP` (not IVFFlat) for exact reproducibility, GPU-first default, 50K-doc cap removed.
 - Commits: `236c7a3` (code), `68069ec` (embedder fix), `7b99409` (docs + scripts), `fca361f` (lint), `d9c2f0b` (nq deferral + RESUME doc), `…` (nq built + final docs — this commit). Full details: [PHASE_3.md](PHASE_3.md), [PHASE_3_RESUME.md](PHASE_3_RESUME.md).
+
+## Phase 4 — Query Processing & Refinement ✅
+- Fourth service added on `:8004`: query refinement pipeline (grammar → spell → synonyms → tokenize → personalize). Service is **dataset-agnostic** — it just takes a query and returns enriched tokens + per-token weights.
+- **4 sub-modules**:
+  - `symspellpy` spell corrector (SymSpell 6.9 + Damerau distance shim + brute-force fallback for transpositions the SymSpell prefilter misses). Loads the 82,765-word `frequency_dictionary_en_82_765.txt` (1.3 MB) into memory. Tested on `recieve → receive`, `wnat → what`, `thier → their`, `beuatiful → beautiful`, etc.
+  - `nltk.WordNet` synonym expander: 1-2 synonyms per non-stopword across 5 POS tags. Multi-word lemmas dropped (e.g. `ice_cream`) to keep output space-joined.
+  - `language-tool-python` grammar corrector: **off by default** (the 200 MB `.jar` download is 5-8 min on 4 Mbps + 3-10 s JVM warm-up). Per-call `enable_grammar=true` toggle.
+  - Per-user `data/user_logs/<user_id>.jsonl` personalization: tokens with ≥3 distinct doc-clicks in past queries get weight 2.0; new users / no log file = no boost.
+- **53 synthetic past queries** for `user_1` from `scripts/seed_user_logs.py` (slightly over the guide's "50" for a more interesting click-frequency distribution).
+- **Live uvicorn test on :8004**: `/health` ~1.95 s cold (SymSpell + WordNet init), <10 ms warm; `/refine` 4-110 ms (cold/warm), with 6 hand-tested queries: clean, typos, synonyms, personalized eiffel, personalized france, unknown user.
+- 85 new tests (21 spell + 16 synonyms + 6 grammar + 18 personalization + 13 pipeline + 10 service). **212 project-wide**, all passing. Lint clean (ruff + black + mypy).
+- Deviations from the guide (documented in PHASE_4.md §13): grammar off by default, brute-force spell fallback (SymSpell transposition limitation), 53 not 50 past queries, `RefinedToken` singular schema field.
+- Full details: [PHASE_4.md](PHASE_4.md).

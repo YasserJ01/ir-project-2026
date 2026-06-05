@@ -12,7 +12,7 @@
 | 1 — Data Acquisition & Preprocessing | ✅ done | [docs/PHASE_1.md](docs/PHASE_1.md) |
 | 2 — Indexing | ✅ done | [docs/PHASE_2.md](docs/PHASE_2.md) |
 | 3 — Dense Representations + FAISS | ✅ done | [docs/PHASE_3.md](docs/PHASE_3.md), [docs/PHASE_3_RESUME.md](docs/PHASE_3_RESUME.md) |
-| 4 — Query Processing & Refinement | ⏳ upcoming | — |
+| 4 — Query Processing & Refinement | ✅ done | [docs/PHASE_4.md](docs/PHASE_4.md) |
 | 5 — Query Matching, Ranking & Hybrid | ⏳ upcoming | — |
 | 6 — Service-Oriented Architecture (SOA) | ⏳ upcoming | — |
 | 7 — User Interface (React + Vite + TS) | ⏳ upcoming | — |
@@ -80,7 +80,17 @@ make dev-retrieval   # -> http://127.0.0.1:8003
 #   POST /retrieval/{touche2020|nq}/search
 #        body: {"query": "When was X founded?", "k": 10}
 
-# 11. (Optional) Run the UI in production mode via Docker
+# 11. (Optional) Run the query-refinement service (Phase 4)
+make download-symspell-dict   # one-time: 1.3 MB SymSpell dict
+make seed-user-logs           # 53 synthetic past queries for "user_1"
+make dev-refinement           # -> http://127.0.0.1:8004
+#   GET  /health
+#   POST /refine
+#        body: {"query": "recieve teh helo", "user_id": "user_1"}
+#        body: {"query": "fast car", "enable_synonyms": true, "synonym_count": 2}
+make smoke-refine             # hand-test the 6 default queries
+
+# 12. (Optional) Run the UI in production mode via Docker
 docker compose up -d --build
 # → http://localhost:3000
 # See docs/DOCKER.md for dev vs prod conventions.
@@ -114,6 +124,7 @@ See [docs/architecture.md](docs/architecture.md) for the full diagram (filled in
 - [docs/PHASE_1.md](docs/PHASE_1.md) — what was done in Phase 1 (data + preprocessing).
 - [docs/PHASE_2.md](docs/PHASE_2.md) — what was done in Phase 2 (inverted + TF-IDF + BM25 + service on :8002).
 - [docs/PHASE_3.md](docs/PHASE_3.md) — what was done in Phase 3 (dense embeddings + FAISS + service on :8003).
+- [docs/PHASE_4.md](docs/PHASE_4.md) — what was done in Phase 4 (query refinement: spell + synonyms + grammar + personalization + service on :8004).
 - [docs/architecture.md](docs/architecture.md) — system architecture.
 - [docs/dataset_choice.md](docs/dataset_choice.md) — chosen datasets (filled in Phase 1).
 - [docs/progress.md](docs/progress.md) — running progress log.
