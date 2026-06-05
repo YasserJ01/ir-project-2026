@@ -84,8 +84,11 @@
   - `check_dense_2_status.py` — poll `build_meta_l12.json`. Use `--watch 30` for live tail.
   - `smoke_hybrid.py` — in-process smoke of all 5 reps + multi-encoder (no uvicorn needed, uses `ASGITransport`).
 - 4 new Makefile targets: `download-second-model`, `build-dense-2`, `launch-dense-2`, `check-dense-2`, `smoke-hybrid`.
-- 65 new tests + 1 updated (`test_load_lru_eviction` now covers LRU-2). **277 project-wide** (212 Phase 4 + 65 new), all passing. Lint clean (ruff + black + mypy) on all 30+ source files.
-- Build is staged: **Stage 1** = framework + tests + docs (committed before L12 build starts); **Stage 2** = `git commit --allow-empty "Phase 5: 2nd FAISS index built; multi-encoder live"` after `build_meta_l12.json` flips to `ok` for both datasets.
-- Expected L12 build time on GTX 1650 Max-Q: ~95 min touche2020 + ~125 min nq = ~3.7 hr total (FP16, batch=256).
+- 67 new tests + 1 updated (`test_load_lru_eviction` now covers LRU-2). **279 project-wide** (212 Phase 4 + 67 new), all passing. Lint clean (ruff + black + mypy) on all 30+ source files.
+- Build is staged: **Stage 1** = framework + tests + docs (committed before L12 build starts); **Stage 2** = `git commit "Phase 5: 2nd FAISS index built for touche2020 + nq; fix closure signature mismatch"` after `build_meta_l12.json` flips to `ok` for both datasets.
+- **L12 build complete** (5h 59m end-to-end): touche2020 10,346 s / 1,136 MB; nq 11,207 s / 1,471 MB. Total 882,544 vectors, 2,607 MB. Both `build_meta_l12.json` files committed as build receipts; the 2.6 GB of `faiss_l12.index` + `embeddings_l12.npy` are gitignored and reproducible from `scripts/build_dense_2.py` + the corpus.
+- Bug found + fixed during post-build smoke: `_dense_search_closure()` in `service.py` had parameter order `(query_text, dataset_id, model_name, k)` while the `DenseSearchFn` type alias in `hybrid.py:259` and the test fake used `(query_text, dataset_id, k, model_name)`. Hybrid callers passed `(query_text, dataset_id, req.k, None)`, so int `k` ended up as `model_name` and crashed on `model_cache_dir(model_name).replace(...)`. Fix: swapped closure param order. Two regression tests added (`test_dense_search_closure_signature_matches_dense_search_fn`, `test_dense_search_closure_with_l12_picks_l12_index`).
+- Test isolation fix: `test_hybrid_health_known_dataset_no_artifacts` now stubs `_probe_upstreams` to `(False, False)` so it doesn't depend on whether :8002 is actually running.
+- Live smoke (`make smoke-hybrid`): all 4 queries × (5 representations + 3 multi-encoder fusions) return 200 with correct top-1 hits. First-call latency is high (model/FAISS cold loads ~10-30 s); subsequent calls 60-140 ms.
 - Deviations from the guide (documented in PHASE_5.md §14): no query-time caching of fused results, personalization = single scalar (not per-term re-scoring), hard-coded 2 encoders (override-able), no streaming.
 - Full details: [PHASE_5.md](PHASE_5.md).

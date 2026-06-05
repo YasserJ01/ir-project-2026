@@ -1,9 +1,9 @@
 # Phase 5 — Hybrid Search & Multi-Encoder Fusion
 
-**Status:** ✅ Complete (build in progress; multi-encoder live after L12 index completes).
+**Status:** ✅ Complete. L12 indexes built, multi-encoder live, smoke test green.
 **Duration:** 2026-06-05 → 2026-06-05.
-**Branch:** `main` · 1 commit (framework) + 1 commit (post-build, pending).
-**Test count:** +65 new tests (28 fusion + 17 hybrid + 12 multi-encoder + 8 service) + 1 updated (`test_load_lru_eviction` now covers LRU-2). Project-wide: **277 passing** (212 from Phase 4 + 65 new).
+**Branch:** `main` · 2 commits (framework + bugfix/build-receipt).
+**Test count:** +67 new tests (28 fusion + 17 hybrid + 12 multi-encoder + 8 service + 2 closure regression) + 1 updated (`test_load_lru_eviction` now covers LRU-2). Project-wide: **279 passing** (212 from Phase 4 + 67 new).
 
 This phase implements the **5 search representations** of the retrieval
 service (per the project's spec, §5.3) plus a **2nd-encoder (L12) FAISS
@@ -681,6 +681,107 @@ pytest tests/retrieval/ -v
   "version": "0.1.0"
 }
 ```
+
+---
+
+## 16. Live Build Measurements
+
+The 2nd-encoder (L12) FAISS index build was run end-to-end against both datasets. All numbers below were captured from `data/build_dense_2.log`.
+
+### 16.1 Build command
+
+```bash
+make launch-dense-2
+# internally: py scripts/launch_dense_2.py
+# → spawns detached subprocess with DETACHED_PROCESS | CREATE_NO_WINDOW
+#   on Windows, logs to data/build_dense_2.{log,err.log}
+```
+
+### 16.2 Per-dataset timings
+
+| dataset | docs | warm-up | encode (s) | encode (s/doc) | save (s) | total (s) | size (MB) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `touche2020` | 382,544 | 556.5 | 9,781.9 | 0.0256 (39 docs/s) | 4.0 | 10,346.1 | 1,136.4 |
+| `nq`         | 500,000 |   8.3 | 11,189.7 | 0.0224 (45 docs/s) | 5.4 | 11,206.8 | 1,470.9 |
+| **total**    | 882,544 | 564.8 | 20,971.6 | 0.0238 (42 docs/s) | 9.4 | 21,553.3 | 2,607.3 |
+
+`nq` warm-up was 8.3 s vs `touche2020`'s 556.5 s because the L12 model was already on disk after the first dataset triggered the 133 MB download.
+
+### 16.3 GPU utilisation (samples)
+
+Captured via `nvidia-smi` during the build:
+
+| time | GPU-Util | VRAM | Power |
+|---|---:|---:|---:|
+| 19:33:49 (touche2020 encoding) | 100% | 1,807 MiB | 31.86 W |
+| 20:56:43 (nq encoding)          | 100% | 2,036 MiB | 30.22 W |
+
+Pipeline was **CPU-bound + GPU-bound simultaneously** — tokenisation on the host fed the L12 forward pass on the GPU without starvation in either direction. Throughput stayed consistent at ~42 docs/s across both datasets.
+
+### 16.4 Files written
+
+```
+data/indexes/touche2020/
+├── faiss_l12.index      560.37 MB  (384-dim, IndexFlatIP, L2-normalised)
+├── embeddings_l12.npy   560.37 MB  (382,544 × 384 float32)
+└── build_meta_l12.json     ~0.5 KB (build receipt: status=ok, elapsed=10346.1s, etc.)
+
+data/indexes/nq/
+├── faiss_l12.index      732.42 MB
+├── embeddings_l12.npy   732.42 MB
+└── build_meta_l12.json     ~0.5 KB
+```
+
+### 16.5 Live smoke test (post-build)
+
+`py scripts/smoke_hybrid.py --k 3` against `:8002` (indexing) + `:8003` (retrieval). All 4 queries × (5 representations + 3 multi-encoder fusions) returned **200 OK** with the expected top-1 doc:
+
+| query | tfidf | bm25 | embedding | hybrid_serial | hybrid_parallel | multi-encoder |
+|---|---|---|---|---|---|---|
+| `touche2020` "Should abortion be legalized?" | 5,947 ms | 30,017 ms¹ | 30,227 ms¹ | 69 ms | 76 ms | 232 ms (RRF) / 130 ms (CombSUM) |
+| `touche2020` "Is climate change caused by humans?" | 2,049 ms | 16 ms | 59 ms | 67 ms | 84 ms | 114 ms / 111 ms |
+| `nq` "when was the declaration of independence signed" | 3,300 ms | 20,242 ms¹ | 3,845 ms | 70 ms | 78 ms | 4,096 ms / 134 ms |
+| `nq` "what is the largest planet in the solar system" | 1,046 ms | 8 ms | 62 ms | 65 ms | 94 ms | 136 ms / 140 ms |
+
+¹ First call to BM25 (loads 692 MB/390 MB bm25s indexes from disk via :8002 → 30 s). Subsequent calls are < 20 ms.
+
+Representative top-1 hits confirmed:
+- "Should abortion be legalized?" → "Should abortion be legal" (RRF, combSUM, combMNZ)
+- "largest planet in the solar system" → "The Solar System...the largest eight..." (RRF, combSUM, combMNZ)
+- "when was the declaration of independence signed" → "The Declaration became official when Congress voted for it on July 4..." (RRF, combSUM, combMNZ)
+
+### 16.6 Bug found and fixed during smoke
+
+The first smoke run crashed with `'int' object has no attribute 'replace'` on `representation=embedding` and `representation=hybrid_parallel`. Root cause: the real `_dense_search_closure()` in `services/retrieval/app/service.py` had parameter order `(query_text, dataset_id, model_name, k)` while the `DenseSearchFn` type alias in `hybrid.py:259` and the test fake both use `(query_text, dataset_id, k, model_name)`. The hybrid orchestrator callers passed `(query_text, dataset_id, req.k, None)`, so the int `k` ended up as `model_name` and the int `.replace()` was called downstream in `model_cache_dir()`.
+
+**Fix:** swapped the closure's parameter order to match the contract. Added two regression tests (`test_dense_search_closure_signature_matches_dense_search_fn` and `test_dense_search_closure_with_l12_picks_l12_index`) that exercise the real closure end-to-end. Test count: 277 → 279.
+
+The multi-encoder path was unaffected because `MultiEncoderSearchFn` is a separate type alias with the `(query_text, dataset_id, model_name, k)` order, and its own closure (`_default_multi_encoder_search` in `multi_encoder.py`) was already correct.
+
+### 16.7 Test isolation fix
+
+`test_hybrid_health_known_dataset_no_artifacts` was passing in CI but failed when :8002 was actually running locally (the test's `bm25_endpoint_reachable is False` assertion was violated). Added a `monkeypatch.setattr(service_mod, "_probe_upstreams", lambda: (False, False))` to stub the upstream probe so the test is deterministic regardless of which services are live.
+
+### 16.8 Reproducibility
+
+```bash
+# Re-run from scratch (4 Mbps link, ~6 hr total)
+make download-second-model   # ~4 min  (133 MB L12 weights)
+make build-dense-2            # blocking; takes ~3.7 hr on 4 GB VRAM GPU
+# OR
+make launch-dense-2           # detached; user monitors in own PowerShell
+make check-dense-2            # polls build_meta_l12.json
+make smoke-hybrid             # in-process smoke test (no uvicorn needed)
+```
+
+The two `build_meta_l12.json` files in `data/indexes/{touche2020,nq}/` are the canonical build receipts and are committed (see §16.9). The `faiss_l12.index` and `embeddings_l12.npy` files (2.6 GB total) are gitignored but fully reproducible from the receipts + `scripts/build_dense_2.py` + the corpus.
+
+### 16.9 Commits in this phase
+
+| commit | message | files | +/– |
+|---|---|---|---|
+| `6473058` | `Phase 5 framework: hybrid search + multi-encoder fusion` (Stage 1) | 24 | +4,800 / –66 |
+| (pending) | `Phase 5: 2nd FAISS index built for touche2020 + nq (5h 59m); fix closure signature mismatch` (Stage 2) | 6 | +220 / –10 |
 
 ---
 

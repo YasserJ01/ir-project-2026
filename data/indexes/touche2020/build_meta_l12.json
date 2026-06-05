@@ -1,0 +1,19 @@
+{
+  "dataset_id": "touche2020",
+  "built_at": "2026-06-05T19:16:45",
+  "status": "ok",
+  "model_name": "sentence-transformers/all-MiniLM-L12-v2",
+  "index_type": "IndexFlatIP",
+  "num_vectors": 382544,
+  "embedding_dim": 384,
+  "elapsed_seconds": 10346.07,
+  "load_seconds": 3.66,
+  "warm_seconds": 556.5,
+  "encode_seconds": 9781.88,
+  "save_seconds": 4.03,
+  "docs_per_sec": 39.1,
+  "batch_size": 256,
+  "max_docs": 0,
+  "char_cap": 1024,
+  "size_mb": 1136.4
+}

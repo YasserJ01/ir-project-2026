@@ -73,6 +73,95 @@ def client() -> TestClient:
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Regression tests for the real _dense_search_closure()
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_dense_search_closure_signature_matches_dense_search_fn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: the real closure must accept ``(query_text, dataset_id, k, model_name)``.
+
+    The :data:`HybridOrchestrator.DenseSearchFn` type alias is the contract.
+    An earlier version of the closure had the parameters in the wrong order
+    (``model_name`` came before ``k``), which made the embedding and
+    hybrid_parallel representations crash with
+    ``'int' object has no attribute 'replace'`` at runtime. This test
+    calls the real closure with ``k=3`` and ``model_name=None`` and
+    verifies that the embedder receives the model_name (not the int ``k``).
+    """
+    # Force the closure to rebuild (it's a module-level singleton).
+    service_mod._DENSE_CLOSURE = None
+
+    captured: dict[str, Any] = {}
+
+    class FakeEmbedder:
+        def encode_query(self, text: str, model_name: str | None = None) -> Any:
+            captured["text"] = text
+            captured["model_name"] = model_name
+            import numpy as np
+
+            return np.zeros(4, dtype=np.float32)
+
+    class FakeIndex:
+        def __init__(self) -> None:
+            self.doc_ids = ["d1", "d2", "d3", "d4"]
+
+        def search(self, _q: Any, k: int) -> tuple[list[float], list[str]]:
+            return [0.9, 0.8, 0.7], [0, 1, 2]
+
+    monkeypatch.setattr(service_mod, "_embedder", lambda: FakeEmbedder())
+    monkeypatch.setattr(service_mod, "_load_faiss", lambda ds, **kw: FakeIndex())
+
+    closure = service_mod._dense_search_closure()
+    import asyncio
+
+    scores, ids = asyncio.run(closure("hello world", "touche2020", 3, None))
+    assert captured["model_name"] is None
+    assert captured["text"] == "hello world"
+    assert scores == [0.9, 0.8, 0.7]
+    assert ids == ["d1", "d2", "d3"]
+
+
+def test_dense_search_closure_with_l12_picks_l12_index(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When ``model_name`` matches the L12 encoder name, the closure must
+    request the L12-specific index files."""
+    service_mod._DENSE_CLOSURE = None
+    captured: dict[str, Any] = {}
+
+    class FakeEmbedder:
+        def encode_query(self, text: str, model_name: str | None = None) -> Any:
+            import numpy as np
+
+            return np.zeros(4, dtype=np.float32)
+
+    def fake_load(ds: str, **kw: Any) -> Any:
+        captured.update(kw)
+        captured["ds"] = ds
+
+        class _Idx:
+            doc_ids = ["d1", "d2"]
+
+            def search(self, _q: Any, k: int) -> tuple[list[float], list[str]]:
+                return [0.5], [0]
+
+        return _Idx()
+
+    monkeypatch.setattr(service_mod, "_embedder", lambda: FakeEmbedder())
+    monkeypatch.setattr(service_mod, "_load_faiss", fake_load)
+
+    closure = service_mod._dense_search_closure()
+    import asyncio
+
+    asyncio.run(closure("hi", "nq", 1, me_mod.DEFAULT_ENCODER_2))
+    assert captured["ds"] == "nq"
+    assert captured.get("index_filename") == "faiss_l12.index"
+    assert captured.get("embeddings_filename") == "embeddings_l12.npy"
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # /hybrid/{ds}/health
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -83,16 +172,20 @@ def test_hybrid_health_unknown_dataset(client: TestClient, fake_faiss: Path) -> 
     assert "Unknown dataset_id" in r.json()["detail"]
 
 
-def test_hybrid_health_known_dataset_no_artifacts(client: TestClient, fake_faiss: Path) -> None:
+def test_hybrid_health_known_dataset_no_artifacts(
+    client: TestClient, fake_faiss: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """No FAISS, no docs.jsonl -- everything is False."""
+    # Stub the upstream probe so the test doesn't depend on whether
+    # :8002 / :8004 happen to be running in the test environment.
+    monkeypatch.setattr(service_mod, "_probe_upstreams", lambda: (False, False))
     r = client.get("/hybrid/touche2020/health")
     assert r.status_code == 200
     body = r.json()
     assert body["dataset_id"] == "touche2020"
     assert body["dense_loaded"] is False
     assert body["second_encoder_built"] is False
-    # The /health probes will fail because no real services are
-    # running -- both flags should be False.
+    # The /health probes are stubbed -- both flags should be False.
     assert body["bm25_endpoint_reachable"] is False
     assert body["refinement_endpoint_reachable"] is False
 

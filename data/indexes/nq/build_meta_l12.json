@@ -1,0 +1,19 @@
+{
+  "dataset_id": "nq",
+  "built_at": "2026-06-05T22:23:32",
+  "status": "ok",
+  "model_name": "sentence-transformers/all-MiniLM-L12-v2",
+  "index_type": "IndexFlatIP",
+  "num_vectors": 500000,
+  "embedding_dim": 384,
+  "elapsed_seconds": 11206.77,
+  "load_seconds": 3.32,
+  "warm_seconds": 8.35,
+  "encode_seconds": 11189.73,
+  "save_seconds": 5.36,
+  "docs_per_sec": 44.7,
+  "batch_size": 256,
+  "max_docs": 0,
+  "char_cap": 1024,
+  "size_mb": 1470.9
+}

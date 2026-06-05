@@ -490,8 +490,17 @@ def _dense_search_closure() -> Any:
         from services.retrieval.app import multi_encoder as me_mod
 
         async def _fn(
-            query_text: str, dataset_id: str, model_name: str, k: int
+            query_text: str,
+            dataset_id: str,
+            k: int,
+            model_name: str | None,
         ) -> tuple[list[float], list[str]]:
+            """Closure signature: ``(query_text, dataset_id, k, model_name)``.
+
+            Matches the :data:`HybridOrchestrator.DenseSearchFn` type alias
+            (and the test fake in tests/retrieval/test_hybrid.py).
+            ``model_name=None`` means "use the default L6 encoder".
+            """
             emb = _embedder()
             t0 = time.time()
             q_vec = emb.encode_query(query_text, model_name=model_name)
