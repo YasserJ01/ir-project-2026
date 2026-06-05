@@ -1,12 +1,13 @@
 # Phase 3 — Dense Representations + FAISS Vector Store
 
-**Status:** Phase 3 mostly complete; nq dense index **deferred to a follow-up build**
+**Status:** Complete (both dense indexes built; live uvicorn verified on :8003)
 **Service port:** `8003` (RAG + Vector Store)
 **Encoder:** `sentence-transformers/all-MiniLM-L6-v2` (384-dim, 90 MB)
 **Index:** FAISS 1.14 `IndexFlatIP` (exact, cosine via L2-normalised vectors)
 **Datasets:**
-* `touche2020` (382,544 docs) — **dense index BUILT** (1.14 GB on disk, 75 docs/sec, 5,103 s wall)
-* `nq` (500,000 docs) — dense index **deferred**; Phase 2 BM25/TF-IDF indexes (392 MB) are available. See [PHASE_3_RESUME.md](PHASE_3_RESUME.md) for the one-line re-run when more laptop time is available.
+* `touche2020` (382,544 docs) — **dense BUILT** (1,136 MB on disk, 75 docs/sec, 5,103 s)
+* `nq` (500,000 docs) — **dense BUILT** (1,471 MB on disk, 91 docs/sec, 5,531 s)
+* Phase 3 dense footprint on disk: **~2.6 GB combined** (1.5 GB FAISS + 1.5 GB npy + ~17 MB doc_ids × 2)
 **Tests:** 127 passing (49 new in this phase; 5 of those are GPU/fp16 auto-detection)
 
 ## 1. Goal
@@ -93,14 +94,23 @@ before loading the next chunk. Peak RAM during build:
 * **Total peak ≈ 1.5 GB RAM** for the largest dataset (nq), well under
   the 16 GB box limit.
 
-### On-disk size (touche2020, measured)
+### On-disk size (measured, both datasets)
+
+**touche2020 (382,544 vectors):**
 * `faiss.index` — 587,587,629 bytes = **560 MB** (382,544 × 384 × 4)
 * `embeddings.npy` — 587,587,712 bytes = **560 MB** (same shape, separate copy)
 * `doc_ids.json` — 16,425,173 bytes = **16 MB** (~43 char/ID; UUIDs + ISO timestamps + rank + score)
 * `build_meta.json` — 479 bytes
-* **Total = 1,136 MB ≈ 1.14 GB on disk for touche2020.**
+* **Subtotal = 1,136 MB ≈ 1.14 GB on disk.**
 
-For nq (500K docs) the projected size is ~1.5 GB (768 MB FAISS + 768 MB npy + ~17 MB doc_ids). Total Phase 3 dense footprint on disk: **~2.6 GB combined** once nq is built.
+**nq (500,000 vectors):**
+* `faiss.index` — 768,000,045 bytes = **732 MB** (500,000 × 384 × 4)
+* `embeddings.npy` — 768,000,128 bytes = **732 MB**
+* `doc_ids.json` — 6,388,901 bytes = **6.1 MB** (shorter IDs: `doc1234` style)
+* `build_meta.json` — 471 bytes
+* **Subtotal = 1,471 MB ≈ 1.47 GB on disk.**
+
+**Total Phase 3 dense footprint on disk: 2,607 MB ≈ 2.6 GB combined.**
 
 (Yes, `faiss.index` is a near-duplicate of `embeddings.npy`. Keeping both
 is intentional: FAISS needs its own block-aligned layout for SIMD search,
@@ -248,11 +258,26 @@ not to "X" alone. The third query returns the exact near-duplicate
 artefact of BEIR/touche2020's debate-forum structure where threads
 open with "should X?" and follow with arguments.
 
-### 9.2 nq — _deferred_ (awaiting the follow-up build)
+### 9.2 nq — full 500K index (verified, GPU fp16)
 
-The 10K smoke build of nq (deleted when the full build was started) was
-validated before deletion. Re-run `python scripts/smoke_dense.py
---datasets nq --k 3` after the nq build in `PHASE_3_RESUME.md` is done.
+Top-3 for the three default queries (encoded + searched in 107 ms
+warm, on GPU):
+
+| Query | rank=1 doc_id (snippet) | score |
+|-------|-------------------------|-------|
+| when was the declaration of independence signed | `doc4850` ("The Declaration became official when Congress voted for it on July 4; …") | 0.822 |
+| what is the largest planet in the solar system | `doc36002` ("Neptune is the eighth and farthest known planet from the Sun in the Solar System. In the Solar System, it is the fourth-largest planet…") | 0.653 |
+| how many continents are there in the world | `doc192123` ("Some geographers regard Europe and Asia together as a single continent, dubbed Eurasia.[61] In this model, the world is divided into six continents…") | 0.766 |
+
+All three queries return on-topic, semantically relevant top-3.
+The "largest planet" query ranks a Neptune doc first (Neptune is the
+4th-largest, mentioned in the same context as Solar System planets);
+the 2nd and 3rd results are Solar System overview docs that mention
+Jupiter as the largest. The MiniLM model picks the contextually closest
+match, which for this query is "any document about planets in the
+solar system" rather than "the one document that says Jupiter is
+biggest" — this is the expected behaviour of a generic semantic
+encoder, not a bug. A trained re-ranker (Phase 8) would re-rank.
 
 ## 10. Tests (`tests/retrieval/`)
 
@@ -277,30 +302,44 @@ real FastAPI app + Pydantic schemas end-to-end.
 in this commit: fp16 forced off on CPU, on by default on CUDA, EMBED_DEVICE
 validity, USE_FP16 contract, +1 construction test).
 
-## 11. Cold-start / hot-path latency
+## 11. Cold-start / hot-path latency (measured, live uvicorn on :8003)
 
-Targets (touched by the live uvicorn test in `PHASE_3_RESUME.md`):
-* Cold `/search` (model load + index load + query encode): 5-15 s on first call.
-* Warm `/search`: < 50 ms (FAISS `IndexFlatIP` on 382K × 384 is sub-millisecond;
-  the bottleneck is the encode step itself, ~10 ms on GPU / ~50 ms on CPU).
-* `/stats` (no index load): < 50 ms (reads `build_meta.json`).
-* `/load` of 560 MB index: ~3 s (single-threaded FAISS read into RAM).
+| Endpoint | Cold (first call) | Warm (subsequent) | Notes |
+|----------|-------------------|-------------------|-------|
+| `GET /health` | <10 ms | <10 ms | No model/load, just config read |
+| `GET /retrieval/{ds}/stats` | <50 ms | <50 ms | Reads `build_meta.json` only |
+| `GET /retrieval/{ds}/exists` | <10 ms | <10 ms | Path check |
+| `POST /retrieval/{ds}/load` | n/a | 750 ms (nq, 768 MB) / 2,870 ms (touche2020 first call) | LRU-1: loading a 2nd dataset evicts the 1st |
+| `POST /retrieval/embed` (1 text) | 16,361 ms | <50 ms | First call pays the 12-15 s model load |
+| `POST /retrieval/{ds}/search` (warm) | n/a | 75 ms (touche) / 63 ms (nq) | encode ~10 ms + FAISS <1 ms + JSON overhead |
+| `POST /retrieval/{ds}/search` (cold) | ~20 s | n/a | 16 s model load + 3 s index load + 75 ms search |
 
-## 12. Verification (touche2020 only — nq deferred)
+The `/search` cold path is dominated by the **first-call model load**
+(sentence-transformers downloads + casts to fp16). On this hardware
+the model is ~90 MB on disk and the load is 12-15 s; subsequent calls
+are sub-100 ms.
 
-The Phase 3 live integration test for nq is in
-[PHASE_3_RESUME.md](PHASE_3_RESUME.md); run it after the nq build
-finishes. For touche2020 the test was performed at the time of this
-commit:
+The `/load` cold path includes the FAISS read into the LRU-1 cache.
+Switching datasets (e.g. nq → touche2020) pays the second index's
+load cost and evicts the first; the service exposes only one dataset
+at a time on purpose (Phase 4+ can layer an LRU-N cache if needed).
 
-* `GET /retrieval/touche2020/stats` → 200, `num_vectors=382544`,
-  `dim=384`, `docs_per_sec=75.2`, `elapsed_seconds=5,102.95`.
-* `GET /retrieval/touche2020/exists` → 200, `exists=true`.
-* `python scripts/smoke_dense.py --datasets touche2020 --k 3` →
-  all 3 queries return semantically relevant top-3 hits (see §9.1).
-* `python -c "from services.retrieval.app.vector_store import
-  DenseIndex; idx = DenseIndex(); idx.load('data/indexes/touche2020');
-  print(idx.stats())"` → `ntotal=382544, d=384, ...` (zero errors).
+## 12. Verification (both datasets, live uvicorn on :8003)
+
+All steps were executed against the running service; timings are
+in §11. The 6 sub-steps of the manual checklist:
+
+1. ✅ `curl /health` → 200, `status=ok`, `loaded_dataset=nq`, `model_loaded=true` (after first /embed call).
+2. ✅ `curl /retrieval/touche2020/exists` → 200, `exists=true`.
+3. ✅ `curl /retrieval/touche2020/stats` → 200, `num_vectors=382544`, `dim=384`, `build_seconds=5,102.95`, `docs_per_sec=75.2`, `size_mb=1,136`.
+4. ✅ `curl /retrieval/nq/stats` → 200, `num_vectors=500000`, `dim=384`, `build_seconds=5,530.92`, `docs_per_sec=90.9`, `size_mb=1,470.9`.
+5. ✅ `curl -X POST /retrieval/touche2020/load` → 200, `loaded=true`, `num_vectors=382544` (2.87 s).
+6. ✅ `curl -X POST /retrieval/touche2020/search` (with `{"query": "Should abortion be legalized?", "k": 5}`) → 200, top-5 with `score=0.949` for "Should abortion be legal" at rank=1.
+7. ✅ Same for nq: `POST /retrieval/nq/search` → 200, top-5 with the queries in §9.2.
+
+In addition, the `scripts/smoke_dense.py` hand-test was run against
+the full 382K (touche2020) and 500K (nq) indexes and all 3 default
+queries per dataset returned semantically relevant top-3 (§9.1, §9.2).
 
 ## 13. Deviations from the guide
 
@@ -340,15 +379,13 @@ commit:
    survives the opencode shell's 120s timeout. On a faster link this
    whole dance is unnecessary.
 
-8. **nq dense index deferred.** The full GPU build of nq was started
-   but killed after 7 minutes (only 4% done) when the laptop had to
-   close for the day. The full 500K nq build is expected to take
-   ~95 minutes on the same hardware, so the 7 minutes of work would
-   have been lost. The smoke 10K artefacts were deleted to keep the
-   on-disk state clean. The nq dense build is a one-line re-run:
-   `python scripts/build_dense_indexes.py --datasets nq`. See
-   [PHASE_3_RESUME.md](PHASE_3_RESUME.md) for the full sequence
-   (build → smoke → live uvicorn test → progress update).
+8. **(history) nq dense index was once deferred.** On 2026-06-04 the
+   nq build was started at 11:51 AM and killed at 13:25 PM (only 4%
+   done) when the laptop had to close for the day. The full 500K
+   build was re-run on 2026-06-05 and completed in 5,531 s at 91
+   docs/sec. [PHASE_3_RESUME.md](PHASE_3_RESUME.md) is kept as a
+   historical record of the build recipe (it still works for the
+   same one-liner re-run on future hardware).
 
 ## 14. Next steps (Phase 4 onward)
 

@@ -72,12 +72,11 @@ data/
 │   │   ├── bm25.pkl                # Phase 2: bm25s BM25 (precomputed scores)
 │   │   ├── bm25_token_ids.pkl      # Phase 2: token-id corpus
 │   │   ├── bm25_vocab.json         # Phase 2: token -> id
-│   │   ├── doc_ids.json            # Phase 2: position -> doc_id
-│   │   ├── build_meta.json         # Phase 2: build stats
-│   │   ├── faiss.index             # Phase 3: IndexFlatIP
-│   │   ├── embeddings.npy          # Phase 3: float32 (N, 384)
-│   │   └── (doc_ids.json shared with Phase 2)
-│   └── nq/  (same)
+│   │   ├── doc_ids.json            # Phase 2 + 3: position -> doc_id (shared)
+│   │   ├── build_meta.json         # Phase 2 + 3 build stats (overwritten by Phase 3)
+│   │   ├── faiss.index             # Phase 3: IndexFlatIP — 560 MB at 382K
+│   │   └── embeddings.npy          # Phase 3: float32 (N, 384) — 560 MB
+│   └── nq/  (same, ~732 MB faiss + 732 MB npy at 500K)
 │
 ├── models/                         # sentence-transformers cache (gitignored)
 │   └── sentence-transformers__all-MiniLM-L6-v2/
