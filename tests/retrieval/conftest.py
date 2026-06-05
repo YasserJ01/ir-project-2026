@@ -185,9 +185,7 @@ def client(
     monkeypatch.setattr(service_mod, "_EMBEDDER", fake_embedder, raising=False)
     monkeypatch.setattr(embedder_mod, "Embedder", lambda *a, **k: fake_embedder)
     # Reset the LRU cache so each test starts fresh.
-    service_mod._FAISS_CACHE.clear()
-    service_mod._LOADED_DATASET = None
-    service_mod._LOADED_MODEL_NAME = ""
-    with TestClient(service_mod.app) as c:
-        yield c
-    service_mod._FAISS_CACHE.clear()
+    service_mod._FAISS_CACHE_2.clear()
+    yield TestClient(service_mod.app)
+    # Cleanup after the test.
+    service_mod._FAISS_CACHE_2.clear()

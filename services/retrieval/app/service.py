@@ -33,6 +33,7 @@ import time
 import traceback
 import uuid
 from collections import OrderedDict
+from typing import Any
 
 # Force UTF-8 on Windows before any logging/output.
 try:
@@ -47,8 +48,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from services.retrieval.app import embedder as embedder_mod
 from services.retrieval.app import vector_store as vector_store_mod
 from services.retrieval.app.config import (
+    SECOND_ENCODER_EMBEDDINGS_FILENAME,
+    SECOND_ENCODER_INDEX_FILENAME,
     docs_path,
+    has_second_encoder_index,
     index_dir,
+)
+from services.retrieval.app.hybrid import (
+    HybridOrchestrator,
+    HybridOrchestratorError,
+    IndexingClient,
+    RefinementClient,
+    build_orchestrator,
+)
+from services.retrieval.app.multi_encoder import (
+    MultiEncoderError,
+    MultiEncoderRunner,
+    build_default_multi_encoder_search,
 )
 from shared.ir_common.schemas import (
     DATASET_IDS,
@@ -59,6 +75,10 @@ from shared.ir_common.schemas import (
     DenseSearchHit,
     DenseSearchResponse,
     DenseStatsResponse,
+    HybridHealthResponse,
+    HybridSearchRequest,
+    HybridSearchResponse,
+    MultiEncoderSearchRequest,
     RetrievalHealthResponse,
 )
 
@@ -86,9 +106,9 @@ app.add_middleware(
 _EMBEDDER: embedder_mod.Embedder | None = None
 _EMBEDDER_LOCK = threading.Lock()
 
-_FAISS_CACHE: OrderedDict[str, vector_store_mod.DenseIndex] = OrderedDict()
+_FAISS_CACHE_2: OrderedDict[tuple[str, str], vector_store_mod.DenseIndex] = OrderedDict()
 _FAISS_LOCK = threading.Lock()
-_FAISS_CACHE_SIZE = 1
+_FAISS_CACHE_SIZE = 2  # one slot per encoder (L6 + L12)
 
 _LOADED_MODEL_NAME: str = ""
 _LOADED_DATASET: str | None = None
@@ -107,22 +127,41 @@ def _is_known(dataset_id: str) -> bool:
     return dataset_id in DATASET_IDS
 
 
-def _load_faiss(dataset_id: str) -> vector_store_mod.DenseIndex:
-    """Return the FAISS index for ``dataset_id``; load if not in LRU."""
-    cached = _FAISS_CACHE.get(dataset_id)
+def _load_faiss(
+    dataset_id: str,
+    *,
+    index_filename: str | None = None,
+    embeddings_filename: str | None = None,
+) -> vector_store_mod.DenseIndex:
+    """Return the FAISS index for ``dataset_id``; load if not in LRU.
+
+    Optional ``index_filename`` / ``embeddings_filename`` override the
+    default L6 names -- used to load the L12 (2nd-encoder) index in
+    Phase 5. The LRU cache is keyed on ``(dataset_id, index_filename)``
+    so a dataset can have BOTH the L6 and L12 indexes resident
+    simultaneously.
+    """
+    cache_key = (dataset_id, index_filename or vector_store_mod.INDEX_FILENAME)
+    cached = _FAISS_CACHE_2.get(cache_key)
     if cached is not None:
-        _FAISS_CACHE.move_to_end(dataset_id)
+        _FAISS_CACHE_2.move_to_end(cache_key)
         return cached
     # Evict cold entries if at capacity.
-    while len(_FAISS_CACHE) >= _FAISS_CACHE_SIZE:
-        _FAISS_CACHE.popitem(last=False)
+    while len(_FAISS_CACHE_2) >= _FAISS_CACHE_SIZE:
+        _FAISS_CACHE_2.popitem(last=False)
     d = index_dir(dataset_id)
-    if not (d / vector_store_mod.INDEX_FILENAME).exists():
+    faiss_path = d / (index_filename or vector_store_mod.INDEX_FILENAME)
+    if not faiss_path.exists():
         raise FileNotFoundError(
-            f"FAISS index for '{dataset_id}' not found at {d}. " "Run `make build-dense` first."
+            f"FAISS index for '{dataset_id}' not found at {faiss_path}. "
+            "Run `make build-dense` (L6) or `make build-dense-2` (L12) first."
         )
-    idx = vector_store_mod.DenseIndex.load(d)
-    _FAISS_CACHE[dataset_id] = idx
+    idx = vector_store_mod.DenseIndex.load(
+        d,
+        index_filename=index_filename or vector_store_mod.INDEX_FILENAME,
+        embeddings_filename=embeddings_filename or vector_store_mod.EMBEDDINGS_FILENAME,
+    )
+    _FAISS_CACHE_2[cache_key] = idx
     return idx
 
 
@@ -155,7 +194,10 @@ def exists(dataset_id: str) -> dict[str, bool]:
     if not _is_known(dataset_id):
         raise HTTPException(status_code=400, detail=f"Unknown dataset_id: {dataset_id!r}")
     d = index_dir(dataset_id)
-    return {"exists": (d / vector_store_mod.INDEX_FILENAME).exists()}
+    return {
+        "exists": (d / vector_store_mod.INDEX_FILENAME).exists(),
+        "second_encoder_exists": has_second_encoder_index(dataset_id),
+    }
 
 
 @app.get("/retrieval/{dataset_id}/stats", response_model=DenseStatsResponse)
@@ -195,7 +237,7 @@ def stats(dataset_id: str) -> DenseStatsResponse:
             index_type = str(m.get("index_type", "IndexFlatIP"))
         except (json.JSONDecodeError, ValueError, KeyError):
             pass
-    loaded = dataset_id in _FAISS_CACHE
+    loaded = any(k[0] == dataset_id for k in _FAISS_CACHE_2.keys())
     return DenseStatsResponse(
         dataset_id=dataset_id,
         exists=True,
@@ -418,6 +460,200 @@ def embed(body: DenseEmbedRequest) -> DenseEmbedResponse:
         vectors=vectors.tolist(),
         latency_ms=latency_ms,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Hybrid (Phase 5)
+# ─────────────────────────────────────────────────────────────────────────
+#
+# Production closures: built once at module load, capture the live
+# Embedder and the FAISS LRU-2 cache via _load_faiss. The orchestrator
+# and the multi-encoder runner hold references to these closures.
+#
+# We lazily instantiate the dense closure (which itself calls
+# _embedder() / _load_faiss() on each call) so the first search pays
+# the model-load cost.
+
+
+_DENSE_CLOSURE: Any | None = None
+_MULTI_ENCODER_CLOSURE: MultiEncoderRunner | None = None
+_ORCHESTRATOR: HybridOrchestrator | None = None
+
+
+def _dense_search_closure() -> Any:
+    """Build the production dense-search closure.
+
+    Signature: ``async (query_text, dataset_id, model_name, k) -> (scores, ids)``.
+    """
+    global _DENSE_CLOSURE
+    if _DENSE_CLOSURE is None:
+        from services.retrieval.app import multi_encoder as me_mod
+
+        async def _fn(
+            query_text: str, dataset_id: str, model_name: str, k: int
+        ) -> tuple[list[float], list[str]]:
+            emb = _embedder()
+            t0 = time.time()
+            q_vec = emb.encode_query(query_text, model_name=model_name)
+            _ = int((time.time() - t0) * 1000)  # encode_ms (unused)
+            # Load the index for the requested model. L12 uses the 2nd
+            # encoder filenames; L6 (or None) uses the default.
+            if model_name == me_mod.DEFAULT_ENCODER_2:
+                idx = _load_faiss(
+                    dataset_id,
+                    index_filename=SECOND_ENCODER_INDEX_FILENAME,
+                    embeddings_filename=SECOND_ENCODER_EMBEDDINGS_FILENAME,
+                )
+            else:
+                idx = _load_faiss(dataset_id)
+            scores, ids = idx.search(q_vec, k)
+            scores_list = [float(s) for s in scores]
+            doc_ids_list = [idx.doc_ids[int(i)] for i in ids if int(i) >= 0]
+            n = min(len(scores_list), len(doc_ids_list))
+            return scores_list[:n], doc_ids_list[:n]
+
+        _DENSE_CLOSURE = _fn
+    return _DENSE_CLOSURE
+
+
+def _multi_encoder_runner() -> MultiEncoderRunner:
+    """Return the singleton multi-encoder runner."""
+    global _MULTI_ENCODER_CLOSURE
+    if _MULTI_ENCODER_CLOSURE is None:
+        search_fn = build_default_multi_encoder_search()
+        _MULTI_ENCODER_CLOSURE = MultiEncoderRunner(search_fn=search_fn)
+    return _MULTI_ENCODER_CLOSURE
+
+
+def _orchestrator() -> HybridOrchestrator:
+    """Return the singleton orchestrator (lazy: opens httpx clients)."""
+    global _ORCHESTRATOR
+    if _ORCHESTRATOR is None:
+        _ORCHESTRATOR = build_orchestrator(
+            dense_search_fn=_dense_search_closure(),
+            indexing_client=IndexingClient(),
+            refinement_client=RefinementClient(),
+        )
+    return _ORCHESTRATOR
+
+
+def _validate_dataset(dataset_id: str) -> None:
+    if not _is_known(dataset_id):
+        raise HTTPException(status_code=400, detail=f"Unknown dataset_id: {dataset_id!r}")
+
+
+def _is_refinement_reachable() -> bool:  # kept for back-compat; unused by Phase 5
+    """Quick health probe for the refinement service (:8004)."""
+    import os
+
+    import httpx
+
+    base = os.environ.get("IR_REFINEMENT_URL", "http://127.0.0.1:8004")
+    try:
+        r = httpx.get(f"{base}/health", timeout=0.5)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+@app.post(
+    "/hybrid/{dataset_id}/search",
+    response_model=HybridSearchResponse,
+)
+async def hybrid_search(dataset_id: str, body: HybridSearchRequest) -> HybridSearchResponse:
+    """Hybrid / multi-representation search endpoint.
+
+    Body shape is :class:`HybridSearchRequest`. Routes to one of the 5
+    representations via the in-process orchestrator.
+    """
+    _validate_dataset(dataset_id)
+    try:
+        orch = _orchestrator()
+        return await orch.search(dataset_id, body)
+    except HybridOrchestratorError as exc:
+        # 502: downstream service (indexing or refinement) unreachable
+        # and not safely fall-back-able.
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"hybrid search failed: {exc}") from exc
+
+
+@app.post(
+    "/multi-encoder/{dataset_id}/search",
+    response_model=HybridSearchResponse,
+)
+async def multi_encoder_search(
+    dataset_id: str, body: MultiEncoderSearchRequest
+) -> HybridSearchResponse:
+    """Multi-encoder (L6 + L12) search endpoint.
+
+    Body shape is :class:`MultiEncoderSearchRequest`. Returns a 503 if
+    the L12 FAISS index is not built yet (build in progress) and a
+    400 if both encoders resolve to the same model.
+    """
+    _validate_dataset(dataset_id)
+    try:
+        runner = _multi_encoder_runner()
+        return await runner.search(dataset_id, body)
+    except MultiEncoderError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"multi-encoder search failed: {exc}") from exc
+
+
+@app.get(
+    "/hybrid/{dataset_id}/health",
+    response_model=HybridHealthResponse,
+)
+def hybrid_health(dataset_id: str) -> HybridHealthResponse:
+    """Per-dataset availability of the 5 representations.
+
+    Reports:
+      * ``dense_loaded`` -- L6 FAISS index exists on disk
+      * ``second_encoder_built`` -- L12 FAISS index exists on disk
+      * ``bm25_endpoint_reachable`` -- indexing (:8002) responds to /health
+      * ``refinement_endpoint_reachable`` -- refinement (:8004) responds to /health
+    """
+    _validate_dataset(dataset_id)
+    d = index_dir(dataset_id)
+    dense_loaded = (d / vector_store_mod.INDEX_FILENAME).exists()
+    second_built = has_second_encoder_index(dataset_id)
+    bm25_ok, refinement_ok = _probe_upstreams()
+    return HybridHealthResponse(
+        dataset_id=dataset_id,
+        dense_loaded=dense_loaded,
+        second_encoder_built=second_built,
+        bm25_endpoint_reachable=bm25_ok,
+        refinement_endpoint_reachable=refinement_ok,
+        second_encoder_model=("sentence-transformers/all-MiniLM-L12-v2" if second_built else ""),
+    )
+
+
+def _probe_upstreams() -> tuple[bool, bool]:
+    """Quick health probes for :8002 (indexing) and :8004 (refinement).
+
+    Returns ``(bm25_ok, refinement_ok)``. A 0.5 s timeout is used so the
+    /health endpoint is always snappy.
+    """
+    import os
+
+    import httpx
+
+    bm25_url = os.environ.get("IR_INDEXING_URL", "http://127.0.0.1:8002") + "/health"
+    refinement_url = os.environ.get("IR_REFINEMENT_URL", "http://127.0.0.1:8004") + "/health"
+
+    def _ok(url: str) -> bool:
+        try:
+            r = httpx.get(url, timeout=0.5)
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    return _ok(bm25_url), _ok(refinement_url)
 
 
 # ─────────────────────────────────────────────────────────────────────────

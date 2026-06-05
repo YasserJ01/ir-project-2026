@@ -1,6 +1,6 @@
 # Architecture
 
-> Updated through **Phase 4**. Phase 6 will expand this with the gateway
+> Updated through **Phase 5**. Phase 6 will expand this with the gateway
 > routing rules, error-handling patterns, and the per-service health
 > contract.
 
@@ -26,6 +26,7 @@ flowchart TD
 | preprocessing | 8001 | Text preprocessing (Phase 1 pipeline) | ✅ Phase 1 |
 | indexing | 8002 | Inverted index, TF-IDF, BM25 (lexical) | ✅ Phase 2 |
 | retrieval | 8003 | Embeddings, FAISS (semantic) | ✅ Phase 3 |
+| retrieval (hybrid) | 8003 | 5-rep hybrid + multi-encoder | ✅ Phase 5 |
 | refinement | 8004 | Query refinement (spell, synonyms, grammar, personalize) | ✅ Phase 4 |
 | rag | 8005 | RAG answer generation | ⏳ Phase 8 |
 | ui | 5173 / 3000 | React frontend (Vite dev / nginx prod) | ✅ Phase 0 |
@@ -64,7 +65,7 @@ data/
 │   │   └── tokenize_meta.json
 │   └── nq/  (same)
 │
-├── indexes/                        # Phase 2 + 3 output (gitignored)
+├── indexes/                        # Phase 2 + 3 + 5 output (gitignored)
 │   ├── touche2020/
 │   │   ├── inverted.pkl            # Phase 2: dict-of-dicts
 │   │   ├── tfidf_matrix.npz        # Phase 2: scipy sparse
@@ -72,14 +73,18 @@ data/
 │   │   ├── bm25.pkl                # Phase 2: bm25s BM25 (precomputed scores)
 │   │   ├── bm25_token_ids.pkl      # Phase 2: token-id corpus
 │   │   ├── bm25_vocab.json         # Phase 2: token -> id
-│   │   ├── doc_ids.json            # Phase 2 + 3: position -> doc_id (shared)
-│   │   ├── build_meta.json         # Phase 2 + 3 build stats (overwritten by Phase 3)
-│   │   ├── faiss.index             # Phase 3: IndexFlatIP — 560 MB at 382K
-│   │   └── embeddings.npy          # Phase 3: float32 (N, 384) — 560 MB
-│   └── nq/  (same, ~732 MB faiss + 732 MB npy at 500K)
+│   │   ├── doc_ids.json            # Phase 2 + 3 + 5: position -> doc_id (shared)
+│   │   ├── build_meta.json         # Phase 3 build stats (L6)
+│   │   ├── faiss.index             # Phase 3: IndexFlatIP (L6) — 560 MB at 382K
+│   │   ├── embeddings.npy          # Phase 3: float32 (N, 384) (L6) — 560 MB
+│   │   ├── build_meta_l12.json     # Phase 5 build stats (L12)
+│   │   ├── faiss_l12.index         # Phase 5: IndexFlatIP (L12) — 560 MB
+│   │   └── embeddings_l12.npy      # Phase 5: float32 (N, 384) (L12) — 560 MB
+│   └── nq/  (same, ~732 MB L6 + ~732 MB L12 = ~1.47 GB per encoder × 2 encoders = 2.94 GB at 500K)
 │
 ├── models/                         # sentence-transformers cache (gitignored)
-│   └── sentence-transformers__all-MiniLM-L6-v2/
+│   ├── sentence-transformers__all-MiniLM-L6-v2/   # Phase 3, 90 MB
+│   └── sentence-transformers__all-MiniLM-L12-v2/  # Phase 5, 120 MB
 │
 ├── dicts/                          # Phase 4 spell dictionaries (gitignored)
 │   └── frequency_dictionary_en_82_765.txt  # SymSpell, 1.3 MB
@@ -151,4 +156,75 @@ ignores weights (the encoder is a black box), so personalization
 only affects lexical search — that's intentional, since user
 preferences for "climate" terms are best expressed as BM25
 boosts, not as different query embeddings.
+
+## Phase 5 — hybrid / multi-encoder dispatch
+
+Phase 5 adds three new endpoints to the existing :8003 service
+(no new port; the orchestrator lives in-process):
+
+```
+  POST /hybrid/{ds}/search          ─▶  HybridOrchestrator (5 reps)
+  POST /multi-encoder/{ds}/search   ─▶  MultiEncoderRunner (L6 + L12)
+  GET  /hybrid/{ds}/health          ─▶  HybridHealthResponse
+```
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                       :8003 service                      │
+│                                                          │
+│  /hybrid/{ds}/search                                     │
+│      │                                                   │
+│      ▼                                                   │
+│  HybridOrchestrator                                      │
+│      │  if representation == "tfidf":      httpx :8002   │
+│      │  if representation == "bm25":       httpx :8002   │
+│      │  if representation == "embedding":  in-proc FAISS │
+│      │  if representation == "hybrid_serial":   BM25 → dense re-rank │
+│      │  if representation == "hybrid_parallel": asyncio.gather(B, D) │
+│      │  personalization × BM25 scalar                    │
+│      │  refinement (if mode == with_features)             │
+│      │      └─▶ httpx :8004; falls back to basic on err  │
+│      │                                                   │
+│      ▼                                                   │
+│  fuse(rrf | combsum | combmnz)                           │
+│      │                                                   │
+│      ▼                                                   │
+│  HybridSearchResponse                                    │
+│                                                          │
+│  /multi-encoder/{ds}/search                              │
+│      │                                                   │
+│      ▼                                                   │
+│  MultiEncoderRunner                                      │
+│      │  asyncio.gather(                                   │
+│      │     encode + FAISS-search(L6, faiss.index),        │
+│      │     encode + FAISS-search(L12, faiss_l12.index))   │
+│      │                                                   │
+│      ▼                                                   │
+│  fuse(rrf | combsum | combmnz)                           │
+└──────────────────────────────────────────────────────────┘
+```
+
+Caches and singletons:
+
+* `_EMBEDDER` — singleton `Embedder` with LRU-2 model cache
+  (`MODEL_CACHE_SIZE = 2`). Holds L6 + L12 in memory at the same time.
+* `_FAISS_CACHE_2` — singleton `OrderedDict[(dataset_id, index_filename), DenseIndex]`
+  with `OrderedDict.popitem(last=False)` eviction. Both L6 and L12
+  indexes can be hot simultaneously.
+* `_ORCHESTRATOR` / `_DENSE_CLOSURE` / `_MULTI_ENCODER_CLOSURE` —
+  module-level lazy singletons. The first request to a 3-tuple of
+  endpoints pays the full LRU warm-up; subsequent requests are O(1)
+  module lookup.
+
+Upstream reachability is probed by the `/hybrid/{ds}/health`
+endpoint via 0.5 s httpx GETs to `:8002/health` and `:8004/health`.
+A downstream that's down is reported as a `false` boolean in the
+response — the health endpoint is always fast and never fails.
+
+The `mode=with_features` fall-back is **fail-open**: if `:8004` is
+unreachable, the orchestrator silently uses the original query and
+sets `refinement_fell_back = True` in the response. Search still
+works, just without spell-correction / synonyms / personalisation.
+
+
 

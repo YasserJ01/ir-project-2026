@@ -161,13 +161,22 @@ class DenseIndex:
     # Persistence
     # ─────────────────────────────────────────────────────────────────────
 
-    def save(self, dirpath: str | Path) -> None:
+    def save(
+        self,
+        dirpath: str | Path,
+        index_filename: str = INDEX_FILENAME,
+        embeddings_filename: str = EMBEDDINGS_FILENAME,
+    ) -> None:
         """Write three files to ``dirpath``:
 
-        * ``faiss.index`` -- ``faiss.write_index`` of the FAISS index
-        * ``embeddings.npy`` -- the raw vectors (so FAISS can be
-          rebuilt without re-encoding the corpus)
-        * ``doc_ids.json`` -- position -> doc_id mapping
+        * ``faiss.index`` (or ``index_filename``) -- ``faiss.write_index`` of the FAISS index
+        * ``embeddings.npy`` (or ``embeddings_filename``) -- the raw vectors
+        * ``doc_ids.json`` -- position -> doc_id mapping (always the
+          default filename; shared across indexes in the same dir)
+
+        The ``index_filename`` / ``embeddings_filename`` overrides are
+        used by the Phase 5 build script to write the L12 encoder's
+        index as ``faiss_l12.index`` + ``embeddings_l12.npy``.
         """
         if self._index is None or self.vectors is None:
             raise RuntimeError("DenseIndex.add() must be called before save().")
@@ -175,24 +184,39 @@ class DenseIndex:
         d.mkdir(parents=True, exist_ok=True)
         import faiss  # local import
 
-        faiss.write_index(self._index, str(d / INDEX_FILENAME))  # type: ignore[attr-defined]
+        faiss.write_index(self._index, str(d / index_filename))  # type: ignore[attr-defined]
         # .npy is fastest when the file is a single contiguous array.
-        np.save(d / EMBEDDINGS_FILENAME, self.vectors, allow_pickle=False)
+        np.save(d / embeddings_filename, self.vectors, allow_pickle=False)
         (d / DOC_IDS_FILENAME).write_text(
             json.dumps(self.doc_ids, ensure_ascii=False), encoding="utf-8"
         )
 
     @classmethod
-    def load(cls, dirpath: str | Path) -> DenseIndex:
-        """Load a previously-saved :class:`DenseIndex` from ``dirpath``."""
+    def load(
+        cls,
+        dirpath: str | Path,
+        index_filename: str = INDEX_FILENAME,
+        embeddings_filename: str = EMBEDDINGS_FILENAME,
+    ) -> DenseIndex:
+        """Load a previously-saved :class:`DenseIndex` from ``dirpath``.
+
+        ``index_filename`` and ``embeddings_filename`` default to the
+        Phase 3 filenames (``faiss.index`` + ``embeddings.npy``). The
+        Phase 5 multi-encoder bonus calls this with
+        ``index_filename="faiss_l12.index"`` and
+        ``embeddings_filename="embeddings_l12.npy"`` to load the L12
+        index. ``doc_ids.json`` is shared between the two indexes
+        (same corpus, same row order) and is always read from the
+        default path.
+        """
         d = Path(dirpath)
-        for name in (INDEX_FILENAME, EMBEDDINGS_FILENAME, DOC_IDS_FILENAME):
+        for name in (index_filename, embeddings_filename, DOC_IDS_FILENAME):
             if not (d / name).exists():
                 raise FileNotFoundError(f"{d / name} not found")
         import faiss  # local import
 
-        idx = faiss.read_index(str(d / INDEX_FILENAME))
-        vectors = np.load(d / EMBEDDINGS_FILENAME)
+        idx = faiss.read_index(str(d / index_filename))
+        vectors = np.load(d / embeddings_filename)
         doc_ids = json.loads((d / DOC_IDS_FILENAME).read_text(encoding="utf-8"))
         if len(doc_ids) != int(idx.ntotal):  # type: ignore[attr-defined]
             raise ValueError(

@@ -66,3 +66,26 @@
 - 85 new tests (21 spell + 16 synonyms + 6 grammar + 18 personalization + 13 pipeline + 10 service). **212 project-wide**, all passing. Lint clean (ruff + black + mypy).
 - Deviations from the guide (documented in PHASE_4.md §13): grammar off by default, brute-force spell fallback (SymSpell transposition limitation), 53 not 50 past queries, `RefinedToken` singular schema field.
 - Full details: [PHASE_4.md](PHASE_4.md).
+
+## Phase 5 — Hybrid Search & Multi-Encoder Fusion ✅
+- Three new orchestration modules in `services/retrieval/app/`:
+  - `fusion.py` — 3 pure functions (`rrf` k=60, `combsum`, `combmnz`) + `fuse()` dispatcher. 28 unit tests covering tie-breaks, min-max normalisation (single-element = 1.0), CombMNZ count-nonzero weighting, empty inputs.
+  - `hybrid.py` — `HybridOrchestrator` orchestrating the 5 representations via `if/elif` on a `Representation` Literal. Personalization scalar = `1 + sum(w-1)/|query|`. Refinement fall-back to `basic` mode when :8004 unreachable. `IndexingClient` + `RefinementClient` (httpx to :8002/:8004). 17 tests.
+  - `multi_encoder.py` — `MultiEncoderRunner` (L6 + L12 in parallel via `asyncio.gather`, fused with RRF/CombSUM/CombMNZ). 503 if L12 index missing, 400 if both encoders identical. 12 tests.
+- 2nd encoder = `sentence-transformers/all-MiniLM-L12-v2` (120 MB, 384-dim, 12 layers). LRU-2 model cache (`MODEL_CACHE_SIZE=2`) + LRU-2 FAISS cache (`_FAISS_CACHE_2`) so L6 + L12 indexes can be resident simultaneously. `_load_faiss` now accepts `index_filename`/`embeddings_filename` overrides.
+- 3 new endpoints on :8003:
+  - `POST /hybrid/{ds}/search` — body = `HybridSearchRequest`, dispatches 5 representations.
+  - `POST /multi-encoder/{ds}/search` — body = `MultiEncoderSearchRequest`, 503 if L12 pending.
+  - `GET  /hybrid/{ds}/health` — `HybridHealthResponse` with `dense_loaded`, `second_encoder_built`, `bm25_endpoint_reachable`, `refinement_endpoint_reachable`.
+- 5 new scripts:
+  - `download_second_model.py` — pre-cache L12 (~4 min on 4 Mbps).
+  - `build_dense_2.py` — encode both datasets with L12, write `faiss_l12.index` + `embeddings_l12.npy` + `build_meta_l12.json`. Idempotent.
+  - `launch_dense_2.py` — detached launcher (survives 120s shell timeout). Logs to `data/build_dense_2.{log,err.log}`.
+  - `check_dense_2_status.py` — poll `build_meta_l12.json`. Use `--watch 30` for live tail.
+  - `smoke_hybrid.py` — in-process smoke of all 5 reps + multi-encoder (no uvicorn needed, uses `ASGITransport`).
+- 4 new Makefile targets: `download-second-model`, `build-dense-2`, `launch-dense-2`, `check-dense-2`, `smoke-hybrid`.
+- 65 new tests + 1 updated (`test_load_lru_eviction` now covers LRU-2). **277 project-wide** (212 Phase 4 + 65 new), all passing. Lint clean (ruff + black + mypy) on all 30+ source files.
+- Build is staged: **Stage 1** = framework + tests + docs (committed before L12 build starts); **Stage 2** = `git commit --allow-empty "Phase 5: 2nd FAISS index built; multi-encoder live"` after `build_meta_l12.json` flips to `ok` for both datasets.
+- Expected L12 build time on GTX 1650 Max-Q: ~95 min touche2020 + ~125 min nq = ~3.7 hr total (FP16, batch=256).
+- Deviations from the guide (documented in PHASE_5.md §14): no query-time caching of fused results, personalization = single scalar (not per-term re-scoring), hard-coded 2 encoders (override-able), no streaming.
+- Full details: [PHASE_5.md](PHASE_5.md).

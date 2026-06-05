@@ -147,10 +147,15 @@ def test_load_lru_eviction() -> None:
             return self._cache[model_name]
 
     e = _StubEmbedder()
-    # Cache is size 1, so loading two different models evicts the first.
+    # Cache size is MODEL_CACHE_SIZE (set to 2 for Phase 5 multi-encoder
+    # support: L6 + L12 must both stay resident). Loading two models
+    # should keep BOTH resident, with m2 being most recently used.
     e._load("m1")
     e._load("m2")
-    assert e.loaded_models() == ["m2"]
+    assert e.loaded_models() == ["m1", "m2"]
+    # A third model evicts the least-recently-used (m1).
+    e._load("m3")
+    assert e.loaded_models() == ["m2", "m3"]
 
 
 # ─────────────────────────────────────────────────────────────────────────

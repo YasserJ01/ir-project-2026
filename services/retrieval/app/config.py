@@ -44,6 +44,19 @@ DATASETS: tuple[str, ...] = ("touche2020", "nq")
 # Guide §3.1: "all-MiniLM-L6-v2 (384-dim, fast on CPU)".
 DEFAULT_MODEL_NAME: str = "sentence-transformers/all-MiniLM-L6-v2"
 
+# Second encoder for the multi-encoder hybrid (Phase 5 bonus).
+# Same embedding dim (384) so the FAISS index shape is identical
+# to the L6 index; only the weights differ. Deeper transformer
+# (12 layers vs 6) captures more context.
+SECOND_ENCODER_NAME: str = "sentence-transformers/all-MiniLM-L12-v2"
+
+# Filename suffix for the 2nd-encoder FAISS index. The L6 index
+# (Phase 3) is ``faiss.index``; the L12 index is ``faiss_l12.index``.
+# Same doc_ids.json (the corpus order is the same; only the
+# embedding vectors differ).
+SECOND_ENCODER_INDEX_FILENAME: str = "faiss_l12.index"
+SECOND_ENCODER_EMBEDDINGS_FILENAME: str = "embeddings_l12.npy"
+
 # Batch size for document encoding. 256 is the sweet spot on 12-core CPU
 # without blowing RAM: 256 * 128 tokens * 4 bytes ≈ 130 KB activations.
 # Empirically (5,000 touche2020 docs, mean 641 chars, GTX 1650, fp16):
@@ -84,9 +97,11 @@ EMBED_DEVICE: str = _detect_device()
 # drop for MiniLM-L6-v2. Has no effect on CPU.
 USE_FP16: bool = EMBED_DEVICE == "cuda"
 
-# LRU cache size for loaded models. One model is ~400 MB; we keep at
-# most one loaded at a time.
-MODEL_CACHE_SIZE: int = 1
+# LRU cache size for loaded models. One model is ~90-120 MB; in Phase
+# 5 we bump from 1 to 2 so the multi-encoder bonus can hold the L6
+# and L12 encoders in memory at the same time. Total weight: ~210 MB
+# (well under our 16 GB RAM budget).
+MODEL_CACHE_SIZE: int = 2
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -121,7 +136,31 @@ def model_cache_dir(model_name: str) -> Path:
 
     Maps the Hugging Face hub name to a filesystem-safe directory name
     (e.g. ``sentence-transformers/all-MiniLM-L6-v2`` ->
-    ``sentence-transformers__all-MiniLM-L6-v2``).
+    ``sentence-transformers__all-MiniLM-L12-v2``).
     """
     safe = model_name.replace("/", "__")
     return MODEL_CACHE_ROOT / safe
+
+
+def second_encoder_index_path(dataset_id: str) -> Path:
+    """Return the path to the 2nd-encoder FAISS index for ``dataset_id``.
+
+    Mirrors :func:`index_dir` for the L12 encoder. Returns
+    ``data/indexes/<dataset_id>/faiss_l12.index``.
+    """
+    return index_dir(dataset_id) / SECOND_ENCODER_INDEX_FILENAME
+
+
+def second_encoder_embeddings_path(dataset_id: str) -> Path:
+    """Return the path to the 2nd-encoder embeddings.npy for ``dataset_id``."""
+    return index_dir(dataset_id) / SECOND_ENCODER_EMBEDDINGS_FILENAME
+
+
+def has_second_encoder_index(dataset_id: str) -> bool:
+    """True iff the 2nd-encoder FAISS index has been built for ``dataset_id``.
+
+    Used by the /multi-encoder endpoint to decide between 200 (live) and
+    503 (build pending).
+    """
+    p = second_encoder_index_path(dataset_id)
+    return p.exists() and (index_dir(dataset_id) / "build_meta_l12.json").exists()

@@ -10,7 +10,7 @@ BLACK  := $(PY) -m black
 MYPY   := $(PY) -m mypy
 PYTEST := $(PY) -m pytest
 
-.PHONY: help install install-torch-gpu venv lint fmt type test up down dev-ui dev-gateway dev-preproc dev-indexing dev-retrieval dev-refinement build-indexes build-dense smoke-search smoke-dense smoke-refine download-models download-symspell-dict seed-user-logs eval clean ingest ingest-a ingest-b tokenize
+.PHONY: help install install-torch-gpu venv lint fmt type test up down dev-ui dev-gateway dev-preproc dev-indexing dev-retrieval dev-refinement build-indexes build-dense build-dense-2 smoke-search smoke-dense smoke-refine smoke-hybrid download-models download-second-model download-symspell-dict seed-user-logs eval clean ingest ingest-a ingest-b tokenize
 
 help:  ## Show this help.
 	@Select-String -Path "$($PSCommandPath)" -Pattern "^[a-zA-Z_-]+:.*?## " | ForEach-Object { $$_.Line }
@@ -36,6 +36,9 @@ install-torch-gpu:  ## Install torch+cu121 from local wheel (data/downloads/) or
 
 download-models:  ## Pre-download the sentence-transformer model into data/models/.
 	& $(ACT); $(PY) -c "import os; from sentence_transformers import SentenceTransformer; m = os.environ.get('IR_MODEL', 'sentence-transformers/all-MiniLM-L6-v2'); from services.retrieval.app.config import model_cache_dir; SentenceTransformer(m, cache_folder=str(model_cache_dir(m)))"
+
+download-second-model:  ## Pre-download the 2nd-encoder (L12) model into data/models/. Required before `make build-dense-2`.
+	& $(ACT); $(PY) scripts/download_second_model.py
 
 lint:  ## Ruff + black --check.
 	& $(ACT); $(RUFF) check .
@@ -72,11 +75,23 @@ build-indexes:  ## Build the inverted, TF-IDF and BM25 indexes for both datasets
 build-dense:  ## Build the dense (FAISS) indexes for both datasets (~35 min CPU).
 	& $(ACT); $(PY) scripts/build_dense_indexes.py
 
+build-dense-2:  ## Build the 2nd-encoder (L12) FAISS indexes (~3.7 hr GPU, 15+ hr CPU). Use `make launch-dense-2` for the background variant.
+	& $(ACT); $(PY) scripts/build_dense_2.py
+
+launch-dense-2:  ## Launch the L12 build as a detached subprocess (survives shell timeout). Logs: data/build_dense_2.{log,err.log}.
+	& $(ACT); $(PY) scripts/launch_dense_2.py
+
+check-dense-2:  ## Poll the L12 build status (build_meta_l12.json). Use --watch 30 for a live tail.
+	& $(ACT); $(PY) scripts/check_dense_2_status.py
+
 smoke-search:  ## Hand-test classical search on the built indexes.
 	& $(ACT); $(PY) scripts/smoke_search.py
 
 smoke-dense:  ## Hand-test dense search on the built FAISS indexes.
 	& $(ACT); $(PY) scripts/smoke_dense.py
+
+smoke-hybrid:  ## Hand-test all 5 Phase 5 representations + multi-encoder (in-process, no uvicorn needed).
+	& $(ACT); $(PY) scripts/smoke_hybrid.py
 
 smoke-refine:  ## Hand-test query refinement on the running :8004 service.
 	& $(ACT); $(PY) scripts/smoke_refine.py

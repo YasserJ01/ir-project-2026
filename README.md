@@ -1,7 +1,7 @@
 # Information Retrieval System — Project 2026
 
 > A production-grade, service-oriented Information Retrieval (IR) search engine.
-> Two corpora (≥ 200K docs each), four representations (TF-IDF, BM25, Embeddings, Hybrid),
+> Two corpora (≥ 200K docs each), five search representations (TF-IDF, BM25, Embedding, Hybrid-Serial, Hybrid-Parallel) plus a 2-encoder fusion (L6 + L12),
 > query refinement, RAG, and a Vector Store — all behind a clean React UI.
 
 ## Status
@@ -13,7 +13,7 @@
 | 2 — Indexing | ✅ done | [docs/PHASE_2.md](docs/PHASE_2.md) |
 | 3 — Dense Representations + FAISS | ✅ done | [docs/PHASE_3.md](docs/PHASE_3.md), [docs/PHASE_3_RESUME.md](docs/PHASE_3_RESUME.md) |
 | 4 — Query Processing & Refinement | ✅ done | [docs/PHASE_4.md](docs/PHASE_4.md) |
-| 5 — Query Matching, Ranking & Hybrid | ⏳ upcoming | — |
+| 5 — Query Matching, Ranking & Hybrid | ✅ done | [docs/PHASE_5.md](docs/PHASE_5.md) |
 | 6 — Service-Oriented Architecture (SOA) | ⏳ upcoming | — |
 | 7 — User Interface (React + Vite + TS) | ⏳ upcoming | — |
 | 8 — Additional Features (Vector Store + RAG) | ⏳ upcoming | — |
@@ -90,7 +90,20 @@ make dev-refinement           # -> http://127.0.0.1:8004
 #        body: {"query": "fast car", "enable_synonyms": true, "synonym_count": 2}
 make smoke-refine             # hand-test the 6 default queries
 
-# 12. (Optional) Run the UI in production mode via Docker
+# 12. (Optional) Run the Phase 5 hybrid / multi-encoder path
+make download-second-model    # pre-cache all-MiniLM-L12-v2 (~4 min on 4 Mbps)
+make launch-dense-2           # detached L12 FAISS build (~3.7 hr on GPU)
+make check-dense-2 --watch 60 # poll build_meta_l12.json until both 'ok'
+make dev-retrieval            # -> http://127.0.0.1:8003
+#   POST /hybrid/{ds}/search
+#        body: {"query": "...", "k": 10, "representation": "hybrid_parallel",
+#               "fusion": "rrf", "candidate_k": 100, "mode": "with_features"}
+#   POST /multi-encoder/{ds}/search
+#        body: {"query": "...", "k": 10, "fusion": "rrf"}
+#   GET  /hybrid/{ds}/health
+make smoke-hybrid             # hand-test all 5 reps + multi-encoder
+
+# 13. (Optional) Run the UI in production mode via Docker
 docker compose up -d --build
 # → http://localhost:3000
 # See docs/DOCKER.md for dev vs prod conventions.
@@ -125,6 +138,7 @@ See [docs/architecture.md](docs/architecture.md) for the full diagram (filled in
 - [docs/PHASE_2.md](docs/PHASE_2.md) — what was done in Phase 2 (inverted + TF-IDF + BM25 + service on :8002).
 - [docs/PHASE_3.md](docs/PHASE_3.md) — what was done in Phase 3 (dense embeddings + FAISS + service on :8003).
 - [docs/PHASE_4.md](docs/PHASE_4.md) — what was done in Phase 4 (query refinement: spell + synonyms + grammar + personalization + service on :8004).
+- [docs/PHASE_5.md](docs/PHASE_5.md) — what was done in Phase 5 (5-representation hybrid search + L6+L12 multi-encoder fusion, all on :8003).
 - [docs/architecture.md](docs/architecture.md) — system architecture.
 - [docs/dataset_choice.md](docs/dataset_choice.md) — chosen datasets (filled in Phase 1).
 - [docs/progress.md](docs/progress.md) — running progress log.

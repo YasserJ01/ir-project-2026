@@ -28,22 +28,19 @@ def test_health(client: TestClient) -> None:
     assert body["model_loaded"] is True
     assert body["model_name"]
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # /retrieval/{ds}/exists + /stats
+    # ─────────────────────────────────────────────────────────────────────────
 
-# ─────────────────────────────────────────────────────────────────────────
-# /retrieval/{ds}/exists + /stats
-# ─────────────────────────────────────────────────────────────────────────
+    def test_exists_true(client: TestClient) -> None:
+        r = client.get("/retrieval/touche2020/exists")
+        assert r.status_code == 200
+        assert r.json() == {"exists": True, "second_encoder_exists": False}
 
-
-def test_exists_true(client: TestClient) -> None:
-    r = client.get("/retrieval/touche2020/exists")
-    assert r.status_code == 200
-    assert r.json() == {"exists": True}
-
-
-def test_exists_false(client: TestClient) -> None:
-    r = client.get("/retrieval/nq/exists")
-    assert r.status_code == 200
-    assert r.json() == {"exists": False}
+    def test_exists_false(client: TestClient) -> None:
+        r = client.get("/retrieval/nq/exists")
+        assert r.status_code == 200
+        assert r.json() == {"exists": False, "second_encoder_exists": False}
 
 
 def test_exists_unknown_dataset(client: TestClient) -> None:
