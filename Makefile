@@ -93,6 +93,12 @@ smoke-dense:  ## Hand-test dense search on the built FAISS indexes.
 smoke-hybrid:  ## Hand-test all 5 Phase 5 representations + multi-encoder (in-process, no uvicorn needed).
 	& $(ACT); $(PY) scripts/smoke_hybrid.py
 
+build-gateway-image:  ## Build the gateway Docker image detached (~80 min on 4 Mbps). Logs: data/build_gateway_image.{log,err.log}.
+	& $(ACT); $(PY) scripts/launch_gateway_build.py
+
+check-gateway-image:  ## Poll the gateway image build status. Image: ir-project/gateway:latest.
+	& $(ACT); $(PY) scripts/check_gateway_build.py
+
 smoke-refine:  ## Hand-test query refinement on the running :8004 service.
 	& $(ACT); $(PY) scripts/smoke_refine.py
 
@@ -106,11 +112,14 @@ seed-user-logs:  ## Generate synthetic user-search history (50+ past queries) fo
 dev-ui:  ## Run the React UI in dev.
 	cd services/ui; npm run dev
 
-up:  ## Docker compose up.
-	docker compose up --build
+up:  ## Docker compose up (CPU stack).
+	docker compose -f docker-compose.yml up --build
+
+up-gpu:  ## Docker compose up with the GPU overlay (retrieval only).
+	docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
 
 down:  ## Docker compose down.
-	docker compose down
+	docker compose -f docker-compose.yml down
 
 ingest: ingest-a ingest-b  ## Ingest both datasets (A: touche2020, B: nq).
 
