@@ -140,6 +140,25 @@ class UserLogEntry:
             clicked_doc_ids=[str(x) for x in d.get("clicked_doc_ids", [])],
         )
 
+    def to_jsonl_line(self) -> str:
+        """Return the entry serialised as a single JSONL line (no trailing ``\\n``).
+
+        The format mirrors the seed-user-logs script's output so the
+        existing :func:`load_user_log` reader can pick the entry up
+        unchanged. ``ensure_ascii=False`` so non-ASCII queries (e.g.
+        the Arabic report's Q&A) round-trip without escape inflation.
+        """
+        import json as _json
+
+        return _json.dumps(
+            {
+                "ts": float(self.ts),
+                "query": str(self.query),
+                "clicked_doc_ids": list(self.clicked_doc_ids),
+            },
+            ensure_ascii=False,
+        )
+
 
 def load_user_log(
     user_id: str, max_lines: int = PERSONALIZATION_LOG_MAX_LINES

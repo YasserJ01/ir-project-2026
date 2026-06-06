@@ -20,14 +20,18 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
 
 from services.refinement.app.config import (
     EAGER_INIT,
     USER_LOG_DIR,
+    user_log_path,
 )
+from services.refinement.app.personalization import UserLogEntry, ensure_user_log_dir
 from services.refinement.app.pipeline import build_pipeline, measure_latency_ms
 from shared.ir_common.schemas import (
+    LogClickRequest,
     RefinementHealthResponse,
     RefineRequest,
     RefineResponse,
@@ -60,6 +64,21 @@ app = FastAPI(
         "list with per-token weights."
     ),
     lifespan=lifespan,
+)
+# CORS tightened in Phase 6 to the same local UI origins as the other
+# backend services. The gateway at :8000 is the primary caller; this
+# CORS list allows the React dev server to call us directly during
+# development.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
+    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -140,6 +159,38 @@ def refine(request: RefineRequest) -> RefineResponse:
         latency_ms=latency_ms,
         user_id=request.user_id,
     )
+
+
+@app.post("/log/click", status_code=204, response_class=Response)
+def log_click(req: LogClickRequest) -> Response:
+    """Append a single click to ``data/user_logs/<user_id>.jsonl``.
+
+    The schema is a 3-field JSONL line (one click = one new entry with
+    a 1-element ``clicked_doc_ids`` list) so the existing
+    ``personalization.py`` reader can aggregate token-clicks across all
+    entries without any merge-by-query logic.
+
+    Returns 204 No Content on success.
+    """
+    ensure_user_log_dir()
+    path = user_log_path(req.user_id)
+    ts = req.ts if req.ts is not None else time.time()
+    entry = UserLogEntry(ts=ts, query=req.query, clicked_doc_ids=[req.doc_id])
+    # Append in text mode with a single line; we open/close per request
+    # (clicks are low-frequency; concurrency is bounded by FastAPI's
+    # threadpool and the OS's per-byte append is atomic for short writes
+    # on local filesystems).
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(entry.to_jsonl_line())
+        fh.write("\n")
+    logger.info(
+        "log/click user=%r q=%r doc=%r dataset=%r",
+        req.user_id,
+        req.query[:60],
+        req.doc_id,
+        req.dataset_id,
+    )
+    return Response(status_code=204)
 
 
 # ─────────────────────────────────────────────────────────────────────────

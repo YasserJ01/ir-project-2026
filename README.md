@@ -14,7 +14,7 @@
 | 3 — Dense Representations + FAISS | ✅ done | [docs/PHASE_3.md](docs/PHASE_3.md), [docs/PHASE_3_RESUME.md](docs/PHASE_3_RESUME.md) |
 | 4 — Query Processing & Refinement | ✅ done | [docs/PHASE_4.md](docs/PHASE_4.md) |
 | 5 — Query Matching, Ranking & Hybrid | ✅ done | [docs/PHASE_5.md](docs/PHASE_5.md) |
-| 6 — Service-Oriented Architecture (SOA) | ⏳ upcoming | — |
+| 6 — Service-Oriented Architecture (SOA) | ✅ done | [docs/PHASE_6.md](docs/PHASE_6.md) |
 | 7 — User Interface (React + Vite + TS) | ⏳ upcoming | — |
 | 8 — Additional Features (Vector Store + RAG) | ⏳ upcoming | — |
 | 9 — System Evaluation | ⏳ upcoming | — |
@@ -104,30 +104,29 @@ make dev-retrieval            # -> http://127.0.0.1:8003
 make smoke-hybrid             # hand-test all 5 reps + multi-encoder
 
 # 13. (Optional) Run the UI in production mode via Docker
-docker compose up -d --build
-# → http://localhost:3000
+docker compose -f docker-compose.yml up -d --build
+# → http://localhost:3000  (UI)
+# → http://localhost:8000  (Gateway, with /health + /api/*)
 # See docs/DOCKER.md for dev vs prod conventions.
 ```
 
 ## Architecture (high level)
 
 ```
-React UI (:5173)  ─▶  FastAPI Gateway (:8000)
-                            │
-              ┌─────────────┼─────────────┐
-              ▼             ▼             ▼
-        Preprocessing   Indexing     Retrieval
-          (:8001)       (:8002)       (:8003)
-                              │             │
-                              └──────┬──────┘
-                                     ▼
-                              Refinement (:8004)
-                                     │
-                                     ▼
-                                 RAG (:8005)
+React UI (:5173 / :3000)  ─▶  FastAPI Gateway (:8000)
+                                    │
+                  ┌─────────────────┼──────────────────┐
+                  ▼                 ▼                  ▼
+           Preprocessing        Indexing           Retrieval
+             (:8001)            (:8002)             (:8003)
+                                                    │
+                                          ┌─────────┴─────────┐
+                                          ▼                   ▼
+                                  Refinement (:8004)    RAG (:8005, P8)
 ```
 
-See [docs/architecture.md](docs/architecture.md) for the full diagram (filled in Phase 6).
+See [docs/architecture.md](docs/architecture.md) for the full diagram + the
+Phase 6 gateway routing table (filled in Phase 6).
 
 ## Documentation
 
@@ -139,6 +138,7 @@ See [docs/architecture.md](docs/architecture.md) for the full diagram (filled in
 - [docs/PHASE_3.md](docs/PHASE_3.md) — what was done in Phase 3 (dense embeddings + FAISS + service on :8003).
 - [docs/PHASE_4.md](docs/PHASE_4.md) — what was done in Phase 4 (query refinement: spell + synonyms + grammar + personalization + service on :8004).
 - [docs/PHASE_5.md](docs/PHASE_5.md) — what was done in Phase 5 (5-representation hybrid search + L6+L12 multi-encoder fusion, all on :8003).
+- [docs/PHASE_6.md](docs/PHASE_6.md) — what was done in Phase 6 (SOA: gateway + Docker Compose + CORS tightening + `log/click` pass-through).
 - [docs/architecture.md](docs/architecture.md) — system architecture.
 - [docs/dataset_choice.md](docs/dataset_choice.md) — chosen datasets (filled in Phase 1).
 - [docs/progress.md](docs/progress.md) — running progress log.
@@ -148,7 +148,10 @@ See [docs/architecture.md](docs/architecture.md) for the full diagram (filled in
 ```
 ir-project-2026/
 ├── README.md
-├── docker-compose.yml         # (Phase 6)
+├── docker-compose.yml         # CPU stack (Phase 6)
+├── docker-compose.gpu.yml     # GPU overlay for retrieval (Phase 6)
+├── services/
+│   └── backend.Dockerfile     # shared backend Dockerfile (Phase 6)
 ├── requirements.txt
 ├── pyproject.toml
 ├── Makefile
@@ -160,12 +163,12 @@ ir-project-2026/
 ├── reports/
 ├── scripts/
 ├── services/
-│   ├── gateway/               # FastAPI Gateway
+│   ├── gateway/               # FastAPI Gateway (Phase 6)
 │   ├── preprocessing/
 │   ├── indexing/
 │   ├── retrieval/
 │   ├── refinement/
-│   ├── rag/
+│   ├── rag/                   # (Phase 8)
 │   └── ui/                    # React + Vite + TS
 └── shared/
     └── ir_common/             # shared config, schemas, http client

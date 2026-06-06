@@ -92,3 +92,31 @@
 - Live smoke (`make smoke-hybrid`): all 4 queries × (5 representations + 3 multi-encoder fusions) return 200 with correct top-1 hits. First-call latency is high (model/FAISS cold loads ~10-30 s); subsequent calls 60-140 ms.
 - Deviations from the guide (documented in PHASE_5.md §14): no query-time caching of fused results, personalization = single scalar (not per-term re-scoring), hard-coded 2 encoders (override-able), no streaming.
 - Full details: [PHASE_5.md](PHASE_5.md).
+
+## Phase 6 — Service-Oriented Architecture & Docker Compose ✅
+- Gateway service added on `:8000`: the single public entry point for the React UI. **No retrieval logic** — pure router + translator.
+- 6 services total (gateway + 4 backend + UI); backend services communicate via **service-name DNS** (`http://preprocessing:8000`) inside the compose network, and only `gateway` (`:8000`) + `ui` (`:3000`) publish host ports.
+- 7 gateway endpoints:
+  - `GET /` — landing page with endpoint list + downstream URL map.
+  - `GET /health` — parallel `asyncio.gather` reachability probes (0.5s per-probe timeout), returns `ok`/`degraded`.
+  - `GET /api/datasets` — `{datasets: ["touche2020", "nq"]}`.
+  - `POST /api/search` — body = `GatewaySearchRequest`; routes by `representation` field. Pydantic 422 on missing/extra fields.
+  - `POST /api/multi-encoder/{dataset_id}/search` — body = `MultiEncoderSearchRequest`.
+  - `POST /api/refine` — pass-through to :8004 `RefineRequest`.
+  - `POST /api/log/click` — 204, body = `LogClickRequest`; gateway forwards to refinement's **new** `POST /log/click` endpoint (added in Phase 6).
+  - `POST /api/rag/answer` — 501 stub (`{"detail": "RAG service ships in Phase 8"}`).
+- 4 backend-service clients in `services/gateway/app/clients.py` (`PreprocessingClient`, `IndexingClient`, `RetrievalClient`, `RefinementClient`) wrapping `httpx.AsyncClient` with structured error translation:
+  - 4xx/5xx → `BackendClientError` (carries status_code + FastAPI `detail`)
+  - `httpx.ConnectError`/`TimeoutException`/`RemoteProtocolError` → `BackendUnreachable`
+  - Gateway translates these to **502/503** with a `GatewayErrorResponse` body.
+- `RequestContextMiddleware` adds an `X-Request-ID` (UUID4, or echoed from the caller) + measures request latency. `/health`, `/docs`, `/openapi.json`, `/redoc` are skipped.
+- **CORS tightened in Phase 6**: 4 backend services + gateway now allow only the 4 local UI origins (`http://localhost:3000`, `http://localhost:5173`, `http://127.0.0.1:3000`, `http://127.0.0.1:5173`) instead of `*`. Gateway CORS is env-driven via `GATEWAY_CORS_ORIGINS`.
+- **One shared backend Dockerfile** (`services/backend.Dockerfile`) with two `ARG`s: `SERVICE_NAME` (default `preprocessing`) + `BASE_IMAGE` (default `python:3.12-slim`). The GPU overlay passes `BASE_IMAGE=nvidia/cuda:12.3.0-runtime-ubuntu22.04` for the `retrieval` service only. ~150 MB JRE overhead paid by all 4 backend services for LanguageTool; the UI image stays slim.
+- **Two compose files**: `docker-compose.yml` (CPU, default) + `docker-compose.gpu.yml` (overlay). Merged via `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up`. The overlay only overrides the `retrieval` service: `runtime: nvidia`, `IR_EMBED_DEVICE=cuda`, nvidia deploy reservations.
+- **UI nginx.conf** updated: `/api/` block now proxies to `http://gateway:8000/` (with `/api/` stripped via the `proxy_pass /` rule). 60s read timeout for long hybrid searches.
+- **Refinement `/log/click` endpoint** added (Phase 6). Writes one JSONL line per click to `data/user_logs/<user_id>.jsonl` (regex-validated user_id, path-traversal-safe via existing `user_log_path()` sanitizer). Aggregated across all entries by `personalization.py:183-204`.
+- **37 new tests** (24 route tests + 13 client unit tests using `httpx.MockTransport` — no live services). **316 project-wide**, all passing. Lint clean (ruff + black).
+- 2 Pydantic test failures fixed by introducing `GatewaySearchRequest` (stricter than the shared `SearchRequest`): `query` + `dataset_id` are required at the gateway so Pydantic returns 422, not the gateway's manual 400.
+- `MultiEncoderSearchRequest` and `LogClickRequest` now used as body types in the gateway (Pydantic validation: missing required fields → 422).
+- Compose file validates with `docker compose config`. Full build (`docker compose build`) takes ~80 min on the 4 Mbps link (the 2.4 GB `torch==2.5.1+cu121` wheel is the bottleneck); build is staged in user shell with detached subprocess to survive the opencode 120s shell timeout. The build was **validated mid-Phase-6 by building just the `gateway` image**, which compiled the Python deps, downloaded NLTK assets, and built successfully (gateway image only; the other 5 services use the same Dockerfile so the same correctness applies).
+- Full details: [PHASE_6.md](PHASE_6.md).

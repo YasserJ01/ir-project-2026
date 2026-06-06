@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# GPU overlay for the retrieval service (Phase 5 build option).
+#
+# Merge with the base compose file:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml build
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#
+# What it does:
+#   1. Switches the `retrieval` service to the CUDA runtime base image
+#      so the sentence-transformers encoders can run on the GPU.
+#   2. Toggles `IR_EMBED_DEVICE=cuda` so the retrieval service uses the
+#      GPU at request time.
+#   3. Sets the nvidia runtime + deploy reservations.
+#
+# Hardware requirement: NVIDIA driver + nvidia-container-toolkit installed
+# on the host. The compose file does NOT auto-install either.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  retrieval:
+    build:
+      context: .
+      dockerfile: services/backend.Dockerfile
+      args:
+        SERVICE_NAME: retrieval
+        BASE_IMAGE: "nvidia/cuda:12.3.0-runtime-ubuntu22.04"
+    image: ir-project/retrieval:gpu
+    runtime: nvidia
+    environment:
+      IR_EMBED_DEVICE: "cuda"
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

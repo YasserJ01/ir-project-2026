@@ -1,8 +1,6 @@
 # Architecture
 
-> Updated through **Phase 5**. Phase 6 will expand this with the gateway
-> routing rules, error-handling patterns, and the per-service health
-> contract.
+> Updated through **Phase 6**.
 
 ## High-level diagram
 
@@ -20,16 +18,21 @@ flowchart TD
 
 ## Services (from SOLO_DEVELOPER_GUIDE §6.1)
 
-| Service | Port (dev) | Purpose | Status |
-|---------|------------|---------|--------|
-| gateway | 8000 | Public entry, routing, CORS | ⏳ Phase 6 |
-| preprocessing | 8001 | Text preprocessing (Phase 1 pipeline) | ✅ Phase 1 |
-| indexing | 8002 | Inverted index, TF-IDF, BM25 (lexical) | ✅ Phase 2 |
-| retrieval | 8003 | Embeddings, FAISS (semantic) | ✅ Phase 3 |
-| retrieval (hybrid) | 8003 | 5-rep hybrid + multi-encoder | ✅ Phase 5 |
-| refinement | 8004 | Query refinement (spell, synonyms, grammar, personalize) | ✅ Phase 4 |
-| rag | 8005 | RAG answer generation | ⏳ Phase 8 |
-| ui | 5173 / 3000 | React frontend (Vite dev / nginx prod) | ✅ Phase 0 |
+| Service | Port (dev) | Port (docker) | Purpose | Status |
+|---------|------------|---------------|---------|--------|
+| gateway | 8000 | 8000 | Public entry, routing, CORS, X-Request-ID | ✅ Phase 6 |
+| preprocessing | 8001 | 8000 (internal) | Text preprocessing (Phase 1 pipeline) | ✅ Phase 1 |
+| indexing | 8002 | 8000 (internal) | Inverted index, TF-IDF, BM25 (lexical) | ✅ Phase 2 |
+| retrieval | 8003 | 8000 (internal) | Embeddings, FAISS (semantic) | ✅ Phase 3 |
+| retrieval (hybrid) | 8003 | 8000 (internal) | 5-rep hybrid + multi-encoder | ✅ Phase 5 |
+| refinement | 8004 | 8000 (internal) | Query refinement (spell, synonyms, grammar, personalize) | ✅ Phase 4 |
+| rag | 8005 | 8005 (Phase 8) | RAG answer generation | ⏳ Phase 8 |
+| ui | 5173 / 3000 | 80 (nginx) | React frontend (Vite dev / nginx prod) | ✅ Phase 0 |
+
+**In docker-compose**: only `gateway:8000` and `ui:3000` publish host
+ports. The 4 backend services bind to internal port 8000 (same
+container port, different hostnames) and are reachable only via
+service-name DNS (`http://preprocessing:8000`, etc.).
 
 ## Indexing vs Retrieval contract
 
@@ -226,5 +229,94 @@ unreachable, the orchestrator silently uses the original query and
 sets `refinement_fell_back = True` in the response. Search still
 works, just without spell-correction / synonyms / personalisation.
 
+## Phase 6 — Gateway routing & error model
 
+The gateway is a **thin router**. No ranking logic lives here. The
+phase adds:
+
+* A FastAPI app on `:8000` with 7 routes + 1 stub.
+* 4 backend-service clients (`PreprocessingClient`, `IndexingClient`,
+  `RetrievalClient`, `RefinementClient`) wrapping `httpx.AsyncClient`
+  with structured error translation.
+* `RequestContextMiddleware` adding `X-Request-ID` (UUID4 or
+  caller-supplied) and per-request latency logging.
+* CORS tightened to 4 local-UI origins on all 5 services.
+
+### Gateway route table
+
+| Method | Path | Body | → Downstream | Status |
+|--------|------|------|--------------|--------|
+| GET | `/` | — | (landing page) | 200 |
+| GET | `/health` | — | 4 parallel probes (0.5s each) | 200 |
+| GET | `/api/datasets` | — | — | 200 |
+| POST | `/api/search` | `GatewaySearchRequest` | :8001→:8002 (tfidf/bm25) OR :8003 (emb/hybrid) | 200/400/422/502/503 |
+| POST | `/api/multi-encoder/{ds}/search` | `MultiEncoderSearchRequest` | :8003 | 200/400/422/502/503 |
+| POST | `/api/refine` | `RefineRequest` | :8004 | 200/422/502/503 |
+| POST | `/api/log/click` | `LogClickRequest` | :8004 `/log/click` (new) | 204/422/502/503 |
+| POST | `/api/rag/answer` | (any) | — | **501 stub** |
+
+### `/api/search` routing
+
+```
+GatewaySearchRequest.representation:
+  "tfidf"           → :8001 /preprocess → :8002 /index/{ds}/search  (model="tfidf")
+  "bm25"            → :8001 /preprocess → :8002 /index/{ds}/search  (model="bm25")
+  "embedding"       → :8003 /hybrid/{ds}/search     (orchestrator handles :8002/:8004)
+  "hybrid_serial"   → :8003 /hybrid/{ds}/search
+  "hybrid_parallel" → :8003 /hybrid/{ds}/search
+```
+
+For embedding/hybrid the gateway passes the request body verbatim
+(`model_dump()`) to `:8003`. The Phase 5 orchestrator handles BM25 +
+refinement on its own.
+
+### Error translation
+
+| Client raises | Gateway returns |
+|---------------|-----------------|
+| `BackendClientError` 4xx | 400 (with `GatewayErrorResponse` body) |
+| `BackendClientError` 5xx | 502 |
+| `BackendUnreachable` | 503 (`reachable=false, status_code=null`) |
+
+Body shape:
+```json
+{
+  "service": "indexing",
+  "reachable": false,
+  "status_code": null,
+  "detail": "ConnectError: connection refused"
+}
+```
+
+### `log/click` flow
+
+```
+React UI  POST /api/log/click {user_id, query, doc_id, dataset_id}
+   │ Pydantic validates LogClickRequest (user_id regex 422s on bad input)
+   ▼
+Gateway  body.model_dump() forwarded
+   ▼
+Refinement  POST /log/click (status_code=204, no body)
+   ▼
+data/user_logs/<user_id>.jsonl  (path-traversal-safe via user_log_path())
+   │ UserLogEntry.to_jsonl_line() = {"ts":<float>, "query":<str>, "clicked_doc_ids":[<str>]}
+   ▼
+Aggregated by personalization.py:183-204
+```
+
+### Docker stack
+
+* **One shared Dockerfile** (`services/backend.Dockerfile`) with
+  `ARG SERVICE_NAME` (default `preprocessing`) and `ARG BASE_IMAGE`
+  (default `python:3.12-slim`). Each backend service is built with
+  `--build-arg SERVICE_NAME=<name>`.
+* **Two compose files**: `docker-compose.yml` (CPU, default) +
+  `docker-compose.gpu.yml` (overlay). Merged via
+  `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up`.
+  The overlay only overrides the `retrieval` service: GPU base image,
+  `runtime: nvidia`, `IR_EMBED_DEVICE=cuda`, nvidia deploy reservations.
+* **UI nginx.conf** proxies `/api/` to `http://gateway:8000/` (the
+  trailing `/` strips the `/api/` prefix).
+* **CORS** tightened to 4 local-UI origins on every service. Env-driven
+  for the gateway (`GATEWAY_CORS_ORIGINS`).
 

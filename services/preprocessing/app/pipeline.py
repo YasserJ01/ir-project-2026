@@ -59,10 +59,19 @@ app = FastAPI(
     ),
 )
 
-# Permissive CORS for local dev. Tightened in Phase 6.
+# CORS tightened in Phase 6 to the local UI origins. The gateway
+# (port 8000) and the React dev server (port 5173) are the only
+# legitimate callers in production; same-host (:3000 / :5173) covers
+# `docker compose up` + `npm run dev` scenarios.
+_LOCAL_UI_ORIGINS = (
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=list(_LOCAL_UI_ORIGINS),
     allow_methods=["*"],
     allow_headers=["*"],
 )

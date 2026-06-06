@@ -654,3 +654,98 @@ class HybridHealthResponse(BaseModel):
     second_encoder_index_filename: str = "faiss_l12.index"
     second_encoder_model: str = ""
     version: str = "0.1.0"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 6 — API Gateway (port 8000)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class LogClickRequest(BaseModel):
+    """Body for ``POST /log/click`` (Phase 6).
+
+    The gateway (`:8000`) forwards this verbatim to the refinement
+    service (`:8004/log/click`), which appends a single JSONL line to
+    ``data/user_logs/<user_id>.jsonl`` in the existing 3-field schema::
+
+        {"ts": <float>, "query": <str>, "clicked_doc_ids": [<str>]}
+
+    Each click creates a **new** entry (with a 1-element
+    ``clicked_doc_ids`` list). This is the simpler of two equivalent
+    representations — the existing ``personalization.py`` reader
+    aggregates token-clicks across all entries regardless of grouping.
+    """
+
+    # Forward-compat: a Phase 7 caller may add fields like `rank` or
+    # `score` for analytics dashboards; we just ignore them.
+    model_config = ConfigDict(extra="ignore")
+
+    user_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._-]+$",
+        description="The user's id. Sanitised to a safe filename by the refinement service.",
+    )
+    query: str = Field(
+        ...,
+        min_length=1,
+        max_length=2048,
+        description="The query that produced the clicked result.",
+    )
+    doc_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=512,
+        description="The id of the clicked document (string; type depends on dataset).",
+    )
+    dataset_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        description="Which corpus the click was in.",
+    )
+    ts: float | None = Field(
+        default=None,
+        description=(
+            "Optional client-side epoch timestamp. If absent, the refinement "
+            "service uses ``time.time()`` at write time."
+        ),
+    )
+
+
+class GatewayHealthResponse(BaseModel):
+    """Response to ``GET /health`` (Phase 6, gateway).
+
+    Probes each backend's ``/health`` in parallel with a short timeout
+    and reports reachability as a flat dict. The endpoint itself is
+    always fast and never fails.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ok", "degraded"] = "ok"
+    service: str = "gateway"
+    version: str = "0.1.0"
+    services: dict[str, bool] = Field(
+        default_factory=dict,
+        description="Map of backend name -> reachable.",
+    )
+
+
+class GatewayErrorResponse(BaseModel):
+    """Response body when a downstream call fails.
+
+    Returned as ``detail`` in a 502/503/504 response, so the React UI
+    can show a user-friendly message instead of a generic error.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    service: str = Field(..., description="Which downstream service failed.")
+    reachable: bool = Field(False, description="False = connection refused / timeout.")
+    status_code: int | None = Field(
+        default=None,
+        description="HTTP status from the downstream (None on connection error).",
+    )
+    detail: str = Field(..., description="Human-readable error description.")
