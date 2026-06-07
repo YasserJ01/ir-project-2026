@@ -27,15 +27,16 @@ def test_root_lists_endpoints(client: TestClient) -> None:
     body = r.json()
     assert body["service"] == "gateway"
     assert body["version"] == "0.6.0"
-    # All 7 public endpoints listed.
+    # All 8 public endpoints listed.
     for ep in (
         "GET  /health",
         "GET  /api/datasets",
+        "GET  /api/docs/{ds}/{id}",
         "POST /api/search",
         "POST /api/refine",
         "POST /api/log/click",
         "POST /api/multi-encoder/{ds}/search",
-        "POST /api/rag/answer  (501 stub, Phase 8)",
+        "POST /api/rag/answer",
     ):
         assert ep in body["endpoints"]
 
@@ -55,6 +56,7 @@ def test_health_all_reachable(client: TestClient) -> None:
         "indexing": True,
         "retrieval": True,
         "refinement": True,
+        "rag": True,
     }
 
 
@@ -77,6 +79,31 @@ def test_datasets_returns_canonical_list(client: TestClient) -> None:
     r = client.get("/api/datasets")
     assert r.status_code == 200
     assert r.json() == {"datasets": ["touche2020", "nq"]}
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# /api/docs/{dataset_id}/{doc_id}
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_get_doc_returns_text(client: TestClient, fake_clients: pytest.FixtureRequest) -> None:  # type: ignore[no-any-unimported]
+    fake_clients.preprocessing.canned["get_doc"] = {
+        "id": "doc-123",
+        "text": "This is the document text.",
+    }
+    r = client.get("/api/docs/touche2020/doc-123")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["id"] == "doc-123"
+    assert body["text"] == "This is the document text."
+    assert fake_clients.preprocessing.calls == [
+        {"method": "get_doc", "dataset_id": "touche2020", "doc_id": "doc-123"}
+    ]
+
+
+def test_get_doc_unknown_dataset_returns_400(client: TestClient) -> None:
+    r = client.get("/api/docs/unknown-ds/doc-123")
+    assert r.status_code == 400
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -376,16 +403,38 @@ def test_log_click_refinement_unreachable_returns_503(
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# /api/rag/answer  (501 stub)
+# /api/rag/answer  (Phase 8)
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def test_rag_answer_returns_501(client: TestClient) -> None:
-    r = client.post("/api/rag/answer", json={"query": "q", "dataset_id": "touche2020"})
-    assert r.status_code == 501
-    detail = r.json()["detail"]
-    assert detail["service"] == "rag"
-    assert "Phase 8" in detail["detail"]
+def test_rag_answer_calls_rag_service(
+    client: TestClient, fake_clients: pytest.FixtureRequest
+) -> None:
+    fake_clients.rag.canned["answer"] = {
+        "answer": "Paris is the capital of France. [doc_id=doc-1]",
+        "source_doc_ids": ["doc-1"],
+        "latency_ms": 123.4,
+    }
+    r = client.post(
+        "/api/rag/answer",
+        json={"query": "What is the capital of France?", "dataset_id": "touche2020", "k": 3},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert "Paris" in body["answer"]
+    assert body["source_doc_ids"] == ["doc-1"]
+    assert body["latency_ms"] == 123.4
+    assert len(fake_clients.rag.calls) == 1
+    assert fake_clients.rag.calls[0]["method"] == "answer"
+
+
+def test_rag_answer_unknown_dataset_returns_422(client: TestClient) -> None:
+    """Pydantic Literal validation rejects unknown dataset_id before routing."""
+    r = client.post(
+        "/api/rag/answer",
+        json={"query": "q", "dataset_id": "unknown"},
+    )
+    assert r.status_code == 422
 
 
 # ─────────────────────────────────────────────────────────────────────────

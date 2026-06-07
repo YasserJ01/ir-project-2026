@@ -714,6 +714,39 @@ class LogClickRequest(BaseModel):
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# RAG (Phase 8)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class RagRequest(BaseModel):
+    """Body for ``POST /rag/answer`` (Phase 8).
+
+    The gateway forwards this body to the RAG service (:8005). The
+    service retrieves top-*k* documents, builds a context window, and
+    generates a grounded answer via a local LLM (TinyLlama-1.1B).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    dataset_id: Literal["touche2020", "nq"] = Field(..., description="Which corpus to search.")
+    query: str = Field(..., min_length=1, max_length=4096, description="The user's question.")
+    k: int = Field(default=5, ge=1, le=50, description="Number of documents to retrieve for context.")
+
+
+class RagResponse(BaseModel):
+    """Response from ``POST /rag/answer`` (Phase 8)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    answer: str = Field(..., description="Generated answer with [doc_id] citations.")
+    source_doc_ids: list[str] = Field(
+        default_factory=list,
+        description="Ordered list of doc_ids used as context (in ranking order).",
+    )
+    latency_ms: float = Field(0.0, description="End-to-end latency (search + generation).")
+
+
 class GatewayHealthResponse(BaseModel):
     """Response to ``GET /health`` (Phase 6, gateway).
 

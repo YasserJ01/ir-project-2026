@@ -6,13 +6,18 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    host: "127.0.0.1",
     proxy: {
-      // Proxy /api/* to the Python FastAPI gateway.
-      // In production this same path is proxied by nginx (see nginx.conf).
+      // String-key /api does NOT strip the prefix in Vite 5.4.x,
+      // so we forward the path unchanged to the gateway.
       "/api": {
-        target: "http://localhost:8000",
+        target: "http://127.0.0.1:8000",
         changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/api/, ""),
+        rewrite: (path) => path,
+      },
+      "/health": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
       },
     },
   },

@@ -144,3 +144,15 @@
 - **Live Docker validation deferred**: the Phase 6 incident (gateway + UI images lost in the `docker prune` crash) means the Phase 7 dist build has not been exercised end-to-end against the live Docker stack. The framework is complete and ready; the next live-validation session will (a) rebuild the gateway + UI images now that Docker is on the G: drive, (b) bring up the full stack with `make up`, (c) confirm the UI loads and the 9 controls work end-to-end.
 - **Pre-existing issues noted (not Phase 7)**: ESLint 9 requires `eslint.config.js` (flat config); the project has none, so `npm run lint` errors out. This is unchanged from Phase 0 and out of scope.
 - Full details: [PHASE_7.md](PHASE_7.md).
+
+## Phase 8 — RAG Service ✅
+- New `services/rag/app/` package on `:8005` with 4 modules: `service.py` (FastAPI), `generator.py` (TinyLlama-1.1B via transformers, lazy load, auto-detect GPU/CUDA fp16), `context.py` (2000-token context window builder), `rag_client.py` (HTTP clients calling retrieval + preprocessing services).
+- Pipeline: `POST /rag/answer` → call retrieval `:8003` hybrid/BM25 (top-k) → fetch doc texts from preprocessing `:8001 /docs/{id}` → build context → format prompt with TinyLlama chat template → greedy generation (256 max tokens) → return `{answer, source_doc_ids, latency_ms}`.
+- **Model**: `TinyLlama/TinyLlama-1.1B-Chat-v1.0` (~2.2 GB download, auto-detects CUDA for fp16 inference at ~1-3s, falls back to CPU fp32 at ~10-20s). Lazy-loaded on first request (not at import time).
+- **Prompt template**: `<|system|>` strict instruction → `<|user|>` context + question → `<|assistant|>` answer with `[doc_id]` citations. "I don't know" when context empty.
+- **Gateway updated**: `POST /api/rag/answer` replaces the Phase 7 501 stub with a real pass-through to `:8005`. `RagClient` added to `GatewayClients`. Pydantic `RagRequest` validates `dataset_id` (Literal), `query`, and `k`.
+- **Schemas added**: `RagRequest` and `RagResponse` in `shared/ir_common/schemas.py`, re-exported via `services/gateway/app/schemas.py`.
+- **RagPanel UI updated**: removed "Phase 8 preview" header, "501 stub" loading text.
+- **Docker**: new `rag` service in `docker-compose.yml` with `rag_cache` named volume for HuggingFace model cache persistence.
+- **5 new RAG tests** (health, 422 on unknown dataset, full mocked pipeline, empty results, retrieval error → 502). **323 tests total** (316 + 5 new + 2 updated gateway), all passing. Ruff clean.
+- Full details: [PHASE_8.md](PHASE_8.md).

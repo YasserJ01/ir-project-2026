@@ -132,6 +132,12 @@ export interface RagResponse {
   latency_ms?: number;
 }
 
+/** Response from `GET /api/docs/{dataset_id}/{doc_id}`. */
+export interface DocResponse {
+  id: string;
+  text: string;
+}
+
 /** Error body returned by the gateway on 502/503 (mirrors `GatewayErrorResponse`). */
 export interface GatewayErrorBody {
   service: string;

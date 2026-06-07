@@ -12,7 +12,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
 #
 # Service topology:
-#   ui (5173) → gateway (8000) → preprocessing/indexing/retrieval/refinement (8000)
+#   ui (5173) → gateway (8000) → preprocessing/indexing/retrieval/refinement/rag (8000)
 #   Backend containers use port 8000 internally and are addressable by
 #   service name (DNS): http://preprocessing:8000, etc.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -159,6 +159,27 @@ services:
       timeout: 3s
       retries: 5
       start_period: 10s
+
+  rag:
+    build:
+      context: .
+      dockerfile: services/backend.Dockerfile
+      args:
+        SERVICE_NAME: rag
+    image: ir-project/rag:latest
+    container_name: ir_rag
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      RAG_RETRIEVAL_URL: "http://retrieval:8000"
+      RAG_PREPROCESSING_URL: "http://preprocessing:8000"
+    volumes:
+      - rag_cache:/root/.cache/huggingface
+    networks: [irnet]
+
+volumes:
+  rag_cache:
 
 networks:
   irnet:

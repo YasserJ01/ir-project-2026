@@ -8,7 +8,7 @@
  * Empty: "No results — try a different query."
  */
 
-import type { SearchHit } from "../types/api";
+import type { DatasetId, SearchHit } from "../types/api";
 import ResultCard from "./ResultCard";
 
 interface Props {
@@ -16,7 +16,7 @@ interface Props {
   loading: boolean;
   error: string | null;
   query: string;
-  datasetId: string;
+  datasetId: DatasetId;
   highlightTerms: string[];
 }
 

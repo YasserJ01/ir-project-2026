@@ -1,8 +1,5 @@
 /**
- * `RagPanel` — RAG answer panel. For Phase 7 the gateway returns
- * 501 (RAG ships in Phase 8); the panel UI is in place so the home
- * page can render the "Get an answer" button + answer + sources
- * state once Phase 8 lands.
+ * `RagPanel` — RAG answer panel (Phase 8).
  *
  * Behaviour:
  *   - The "Get an answer" button is enabled iff there's a non-empty
@@ -55,7 +52,7 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
     <section className="rounded-md border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-800">
-          RAG answer (Phase 8 preview)
+          RAG answer
         </h2>
         <button
           type="button"
@@ -70,7 +67,7 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
         <div className="mt-2 space-y-2 text-sm">
           {loading && (
             <p className="animate-pulse text-slate-500">
-              Calling RAG service (currently 501 stub)…
+              Generating answer…
             </p>
           )}
           {err && (

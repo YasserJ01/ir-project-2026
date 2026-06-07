@@ -45,6 +45,7 @@ from services.gateway.app.schemas import (  # noqa: E402
     GatewaySearchRequest,
     LogClickRequest,
     MultiEncoderSearchRequest,
+    RagRequest,
     RefineRequest,
 )
 
@@ -91,7 +92,7 @@ app = FastAPI(
     description=(
         "Phase 6: SOA gateway. Single public entry on :8000. "
         "Routes to preprocessing (:8001), indexing (:8002), retrieval (:8003), "
-        "and refinement (:8004). RAG (:8005) returns 501 until Phase 8."
+        "refinement (:8004), and RAG (:8005)."
     ),
     lifespan=lifespan,
 )
@@ -155,15 +156,16 @@ def root() -> dict[str, Any]:
     return {
         "service": "gateway",
         "version": "0.6.0",
-        "phase": 6,
+        "phase": 8,
         "endpoints": [
             "GET  /health",
             "GET  /api/datasets",
+            "GET  /api/docs/{ds}/{id}",
             "POST /api/search",
             "POST /api/refine",
             "POST /api/log/click",
             "POST /api/multi-encoder/{ds}/search",
-            "POST /api/rag/answer  (501 stub, Phase 8)",
+            "POST /api/rag/answer",
         ],
         "downstream": {
             "preprocessing": CONFIG.preprocessing_url,
@@ -172,7 +174,7 @@ def root() -> dict[str, Any]:
             "refinement": CONFIG.refinement_url,
             "rag": CONFIG.rag_url,
         },
-        "see": "docs/PHASE_6.md",
+        "see": "docs/PHASE_8.md",
     }
 
 
@@ -194,6 +196,25 @@ async def health(request: Request) -> GatewayHealthResponse:
 def datasets() -> dict[str, list[str]]:
     """The canonical dataset list (matches ``shared.ir_common.schemas.DATASET_IDS``)."""
     return {"datasets": list(DATASET_IDS)}
+
+
+@app.get("/api/docs/{dataset_id}/{doc_id}")
+async def get_doc(dataset_id: str, doc_id: str, request: Request) -> dict[str, str]:
+    """Pass-through to :8001 ``/docs/{dataset_id}/{doc_id}``.
+
+    ``dataset_id`` is validated against the canonical list so the UI
+    gets a 400 with a helpful message (rather than a cryptic 502).
+    """
+    if dataset_id not in DATASET_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown dataset_id {dataset_id!r}; must be one of {list(DATASET_IDS)}",
+        )
+    clients = _clients(request)
+    try:
+        return await clients.preprocessing.get_doc(dataset_id, doc_id)
+    except (BackendUnreachable, BackendClientError) as exc:
+        raise _downstream_error_response(exc) from exc
 
 
 @app.post("/api/search")
@@ -303,22 +324,18 @@ async def log_click(request: Request, body: LogClickRequest) -> None:
 
 
 @app.post("/api/rag/answer")
-async def rag_answer(body: dict[str, Any]) -> dict[str, Any]:
-    """Stub: RAG ships in Phase 8.
+async def rag_answer(request: Request, body: RagRequest) -> dict[str, Any]:
+    """Pass-through to :8005 ``/rag/answer`` (Phase 8).
 
-    The endpoint exists so the React UI's RAG toggle can be wired in
-    Phase 7 (always disabled, but visible). Phase 8 adds the real
-    ``:8005`` service and the gateway routes here.
+    The body is validated by :class:`RagRequest` before forwarding.
+    The RAG service returns a ``RagResponse`` with ``answer``,
+    ``source_doc_ids``, and ``latency_ms``.
     """
-    raise HTTPException(
-        status_code=501,
-        detail={
-            "service": "rag",
-            "reachable": False,
-            "status_code": None,
-            "detail": "RAG service ships in Phase 8",
-        },
-    )
+    clients = _clients(request)
+    try:
+        return await clients.rag.answer(body.model_dump())
+    except (BackendUnreachable, BackendClientError) as exc:
+        raise _downstream_error_response(exc) from exc
 
 
 # ─────────────────────────────────────────────────────────────────────────

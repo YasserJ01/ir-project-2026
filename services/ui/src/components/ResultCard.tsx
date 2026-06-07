@@ -1,16 +1,6 @@
-/**
- * `ResultCard` — one row in the results list. Shows rank, doc_id,
- * a snippet (placeholder text — we don't have a per-doc preview
- * endpoint yet; the snippet is the query context as a fallback),
- * the score, and a "View" button that fires the click log and
- * opens the original doc in a new tab (anchor target).
- *
- * Click logging is fire-and-forget: see `useUserLog`. We don't
- * `await` it because the user shouldn't wait for the log to
- * complete before navigating.
- */
-
-import type { SearchHit } from "../types/api";
+import { useCallback, useState } from "react";
+import type { DatasetId, SearchHit } from "../types/api";
+import { fetchDoc } from "../api/client";
 import { highlight, snippet } from "../utils/highlight";
 import { useUserLog } from "../hooks/useUserLog";
 import { useUiStore } from "../store/useUiStore";
@@ -18,14 +8,8 @@ import { useUiStore } from "../store/useUiStore";
 interface Props {
   hit: SearchHit;
   query: string;
-  datasetId: string;
+  datasetId: DatasetId;
   highlightTerms: string[];
-  // Optional: a real preview snippet per doc. We don't have a
-  // /docs/{id} endpoint yet; if the caller has one, pass it.
-  docSnippet?: string;
-  // Optional: a real URL to open. Defaults to a search-engine query
-  // for the doc_id (so the "View" link doesn't 404 during Phase 7).
-  docUrl?: (docId: string) => string;
 }
 
 export default function ResultCard({
@@ -33,39 +17,51 @@ export default function ResultCard({
   query,
   datasetId,
   highlightTerms,
-  docSnippet,
-  docUrl,
 }: Props) {
   const userId = useUiStore((s) => s.userId);
   const log = useUserLog();
-  const preview =
-    docSnippet ??
-    snippet(
-      `[Document ${hit.doc_id} from ${datasetId}. Score ${hit.score.toFixed(4)}. ` +
-        `A per-document preview is not available yet; the gateway returns doc_id + score only. ` +
-        `Click "View" to open this document in a new tab.]`,
-      280
-    );
+  const [expanded, setExpanded] = useState(false);
+  const [docText, setDocText] = useState<string | null>(null);
+  const [loadingDoc, setLoadingDoc] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
 
-  function onView() {
+  const preview = snippet(
+    `[Document ${hit.doc_id} from ${datasetId}. Score ${hit.score.toFixed(4)}. ` +
+      `Click "View" to read the full text.]`,
+    280
+  );
+
+  const onToggle = useCallback(() => {
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+    // Log the click on first expand.
     log.mutate({
       user_id: userId,
       query,
       doc_id: hit.doc_id,
-      dataset_id: datasetId as typeof hit.doc_id extends string
-        ? Parameters<typeof log.mutate>[0]["dataset_id"]
-        : never,
+      dataset_id: datasetId,
       ts: Date.now() / 1000,
     });
-    const url =
-      docUrl?.(hit.doc_id) ??
-      `https://www.google.com/search?q=%22${encodeURIComponent(hit.doc_id)}%22`;
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
+    setExpanded(true);
+    if (docText !== null || docError !== null) return;
+    setLoadingDoc(true);
+    setDocError(null);
+    fetchDoc(datasetId, hit.doc_id)
+      .then((doc) => {
+        setDocText(doc.text);
+        setLoadingDoc(false);
+      })
+      .catch((err: Error) => {
+        setDocError(err.message);
+        setLoadingDoc(false);
+      });
+  }, [expanded, log, userId, query, hit.doc_id, datasetId, docText, docError]);
 
   return (
-    <li className="rounded-md border border-slate-200 bg-white p-3 shadow-sm transition hover:border-indigo-300">
-      <div className="flex items-start gap-3">
+    <li className="rounded-md border border-slate-200 bg-white shadow-sm transition hover:border-indigo-300">
+      <div className="flex items-start gap-3 p-3">
         <span
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700"
           aria-label={`Rank ${hit.rank}`}
@@ -96,12 +92,31 @@ export default function ResultCard({
         </div>
         <button
           type="button"
-          onClick={onView}
+          onClick={onToggle}
           className="shrink-0 rounded-md border border-indigo-600 px-3 py-1 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50"
         >
-          View
+          {expanded ? "Collapse" : "View"}
         </button>
       </div>
+      {expanded && (
+        <div className="border-t border-slate-200 px-3 pb-3">
+          {loadingDoc && (
+            <p className="mt-2 animate-pulse text-sm text-slate-500">
+              Loading document text…
+            </p>
+          )}
+          {docError && (
+            <p className="mt-2 text-sm text-red-600">
+              Failed to load document: {docError}
+            </p>
+          )}
+          {docText && (
+            <pre className="mt-2 max-h-96 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-slate-50 p-3 font-mono text-xs leading-relaxed text-slate-800">
+              {docText}
+            </pre>
+          )}
+        </div>
+      )}
     </li>
   );
 }

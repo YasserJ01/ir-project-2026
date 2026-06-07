@@ -69,6 +69,10 @@ class FakePreprocessingClient(FakeBaseClient):
         result = await self._dispatch("preprocess", text=text)
         return result if isinstance(result, list) else []
 
+    async def get_doc(self, dataset_id: str, doc_id: str) -> dict[str, str]:
+        result = await self._dispatch("get_doc", dataset_id=dataset_id, doc_id=doc_id)
+        return result if isinstance(result, dict) else {}
+
 
 class FakeIndexingClient(FakeBaseClient):
     service_name = "indexing"
@@ -118,6 +122,14 @@ class FakeRefinementClient(FakeBaseClient):
         await self._dispatch("log_click", body=body)
 
 
+class FakeRagClient(FakeBaseClient):
+    service_name = "rag"
+
+    async def answer(self, body: dict[str, Any]) -> dict[str, Any]:
+        result = await self._dispatch("answer", body=body)
+        return result if isinstance(result, dict) else {}
+
+
 class FakeGatewayClients:
     """Drop-in replacement for the real ``GatewayClients`` container."""
 
@@ -126,6 +138,7 @@ class FakeGatewayClients:
         self.indexing = FakeIndexingClient()
         self.retrieval = FakeRetrievalClient()
         self.refinement = FakeRefinementClient()
+        self.rag = FakeRagClient()
         self.rag_url = "http://fake-rag:8005"
 
     async def open(self) -> None:
@@ -133,12 +146,14 @@ class FakeGatewayClients:
         await self.indexing.open()
         await self.retrieval.open()
         await self.refinement.open()
+        await self.rag.open()
 
     async def aclose(self) -> None:
         await self.preprocessing.aclose()
         await self.indexing.aclose()
         await self.retrieval.aclose()
         await self.refinement.aclose()
+        await self.rag.aclose()
 
     async def reachable(self) -> dict[str, bool]:
         return {
@@ -146,6 +161,7 @@ class FakeGatewayClients:
             "indexing": await self.indexing.reachable(),
             "retrieval": await self.retrieval.reachable(),
             "refinement": await self.refinement.reachable(),
+            "rag": await self.rag.reachable(),
         }
 
 

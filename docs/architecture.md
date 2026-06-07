@@ -1,6 +1,6 @@
 # Architecture
 
-> Updated through **Phase 6**.
+> Updated through **Phase 8**.
 
 ## High-level diagram
 
@@ -26,7 +26,7 @@ flowchart TD
 | retrieval | 8003 | 8000 (internal) | Embeddings, FAISS (semantic) | ✅ Phase 3 |
 | retrieval (hybrid) | 8003 | 8000 (internal) | 5-rep hybrid + multi-encoder | ✅ Phase 5 |
 | refinement | 8004 | 8000 (internal) | Query refinement (spell, synonyms, grammar, personalize) | ✅ Phase 4 |
-| rag | 8005 | 8005 (Phase 8) | RAG answer generation | ⏳ Phase 8 |
+| rag | 8005 | 8000 (internal) | RAG answer generation (TinyLlama-1.1B, auto-detect GPU) | ✅ Phase 8 |
 | ui | 5173 / 3000 | 80 (nginx) | React frontend (Vite dev / nginx prod) | ✅ Phase 0 |
 
 **In docker-compose**: only `gateway:8000` and `ui:3000` publish host
@@ -253,7 +253,8 @@ phase adds:
 | POST | `/api/multi-encoder/{ds}/search` | `MultiEncoderSearchRequest` | :8003 | 200/400/422/502/503 |
 | POST | `/api/refine` | `RefineRequest` | :8004 | 200/422/502/503 |
 | POST | `/api/log/click` | `LogClickRequest` | :8004 `/log/click` (new) | 204/422/502/503 |
-| POST | `/api/rag/answer` | (any) | — | **501 stub** |
+| POST | `/api/rag/answer` | `RagRequest` | :8005 `/rag/answer` | 200/422/502/503 |
+| GET | `/api/docs/{ds}/{id}` | — | :8001 `/docs/{ds}/{id}` | 200/400/502/503 |
 
 ### `/api/search` routing
 

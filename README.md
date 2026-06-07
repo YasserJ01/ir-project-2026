@@ -15,8 +15,8 @@
 | 4 — Query Processing & Refinement | ✅ done | [docs/PHASE_4.md](docs/PHASE_4.md) |
 | 5 — Query Matching, Ranking & Hybrid | ✅ done | [docs/PHASE_5.md](docs/PHASE_5.md) |
 | 6 — Service-Oriented Architecture (SOA) | ✅ done | [docs/PHASE_6.md](docs/PHASE_6.md) |
-| 7 — User Interface (React + Vite + TS) | ⏳ upcoming | — |
-| 8 — Additional Features (Vector Store + RAG) | ⏳ upcoming | — |
+| 7 — User Interface (React + Vite + TS) | ✅ done | [docs/PHASE_7.md](docs/PHASE_7.md) |
+| 8 — Additional Features (Vector Store + RAG) | ✅ done | [docs/PHASE_8.md](docs/PHASE_8.md) |
 | 9 — System Evaluation | ⏳ upcoming | — |
 | 10 — Hardening, Documentation & Submission | ⏳ upcoming | — |
 
@@ -139,6 +139,8 @@ Phase 6 gateway routing table (filled in Phase 6).
 - [docs/PHASE_4.md](docs/PHASE_4.md) — what was done in Phase 4 (query refinement: spell + synonyms + grammar + personalization + service on :8004).
 - [docs/PHASE_5.md](docs/PHASE_5.md) — what was done in Phase 5 (5-representation hybrid search + L6+L12 multi-encoder fusion, all on :8003).
 - [docs/PHASE_6.md](docs/PHASE_6.md) — what was done in Phase 6 (SOA: gateway + Docker Compose + CORS tightening + `log/click` pass-through).
+- [docs/PHASE_7.md](docs/PHASE_7.md) — what was done in Phase 7 (React UI).
+- [docs/PHASE_8.md](docs/PHASE_8.md) — what was done in Phase 8 (RAG service).
 - [docs/architecture.md](docs/architecture.md) — system architecture.
 - [docs/dataset_choice.md](docs/dataset_choice.md) — chosen datasets (filled in Phase 1).
 - [docs/progress.md](docs/progress.md) — running progress log.

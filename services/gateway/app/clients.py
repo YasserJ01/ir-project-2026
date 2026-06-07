@@ -145,6 +145,9 @@ class PreprocessingClient(_BaseClient):
         result = await self._post_json("/preprocess", {"text": text})
         return list(result.get("tokens", []))
 
+    async def get_doc(self, dataset_id: str, doc_id: str) -> dict[str, str]:
+        return await self._get_json(f"/docs/{dataset_id}/{doc_id}")
+
 
 class IndexingClient(_BaseClient):
     service_name = "indexing"
@@ -194,6 +197,13 @@ class RefinementClient(_BaseClient):
         await self._post_json("/log/click", body)
 
 
+class RagClient(_BaseClient):
+    service_name = "rag"
+
+    async def answer(self, body: dict[str, Any]) -> dict[str, Any]:
+        return await self._post_json("/rag/answer", body)
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Lifecycle: open + close all 5 clients at once
 # ─────────────────────────────────────────────────────────────────────────
@@ -215,14 +225,14 @@ class GatewayClients:
         self.indexing = IndexingClient(indexing_url, timeout_s)
         self.retrieval = RetrievalClient(retrieval_url, timeout_s)
         self.refinement = RefinementClient(refinement_url, timeout_s)
-        # RAG client isn't needed yet (Phase 8); we just keep the URL
-        # in scope for the 501 stub.
+        self.rag = RagClient(rag_url, timeout_s)
         self.rag_url = rag_url
         self._all = [
             self.preprocessing,
             self.indexing,
             self.retrieval,
             self.refinement,
+            self.rag,
         ]
 
     async def open(self) -> None:

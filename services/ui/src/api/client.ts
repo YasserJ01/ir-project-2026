@@ -13,6 +13,7 @@ import axios, { AxiosError, type AxiosInstance } from "axios";
 import type {
   DatasetId,
   DatasetsResponse,
+  DocResponse,
   GatewayHealthResponse,
   LogClickRequest,
   RagRequest,
@@ -90,13 +91,29 @@ export async function logClick(payload: LogClickRequest): Promise<void> {
 }
 
 /**
+ * `GET /docs/{datasetId}/{docId}` → document text by ID.
+ * Wired through the gateway to the preprocessing service's
+ * `ir_datasets` store for O(1) lookup.
+ */
+export function fetchDoc(
+  datasetId: DatasetId,
+  docId: string
+): Promise<DocResponse> {
+  return api
+    .get<DocResponse>(`/docs/${datasetId}/${encodeURIComponent(docId)}`)
+    .then((r) => r.data);
+}
+
+/**
  * `GET /health` (gateway root, not /api/health). Returns 200 with
  * a `services` map. Useful for the "is the gateway up?" banner.
  */
 export function health(): Promise<GatewayHealthResponse> {
   // The gateway exposes /health on its root (not under /api), so we
-  // hit the bare URL with a leading slash.
-  return api.get<GatewayHealthResponse>("/health").then((r) => r.data);
+  // bypass the `/api` baseURL and hit the bare URL.
+  return axios
+    .get<GatewayHealthResponse>("/health", { timeout: 5_000 })
+    .then((r) => r.data);
 }
 
 /**
