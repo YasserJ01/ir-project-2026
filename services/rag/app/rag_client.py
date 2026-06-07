@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 RETRIEVAL_URL = os.environ.get("RAG_RETRIEVAL_URL", "http://localhost:8003")
 PREPROCESSING_URL = os.environ.get("RAG_PREPROCESSING_URL", "http://localhost:8001")
-TIMEOUT_S = float(os.environ.get("RAG_CLIENT_TIMEOUT", "30"))
+TIMEOUT_S = float(os.environ.get("RAG_CLIENT_TIMEOUT", "120"))
 
 
 class RagClientError(RuntimeError):

@@ -12,6 +12,7 @@ PID = REPO / "data" / "dev_rag.pid"
 env = os.environ.copy()
 env["PATH"] = r"C:\Program Files\Git\cmd;C:\Windows\System32;" + env.get("PATH", "")
 env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
+env["RAG_CLIENT_TIMEOUT"] = "180"
 
 flags = (
     subprocess.DETACHED_PROCESS

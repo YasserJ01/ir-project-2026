@@ -28,7 +28,7 @@ class GatewayConfig:
     rag_url: str = _env("RAG_URL", "http://localhost:8005")
 
     # How long to wait on any single downstream call.
-    downstream_timeout_s: float = float(_env("GATEWAY_DOWNSTREAM_TIMEOUT", "30"))
+    downstream_timeout_s: float = float(_env("GATEWAY_DOWNSTREAM_TIMEOUT", "180"))
 
     # Per-probe timeout for the /health endpoint's upstream checks.
     health_probe_timeout_s: float = float(_env("GATEWAY_HEALTH_TIMEOUT", "0.5"))

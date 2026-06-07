@@ -1,8 +1,8 @@
 # Phase 8 — RAG Service (Retrieval-Augmented Generation)
 
 > **Goal:** Replace the Phase 7 501 stub with a real RAG service on `:8005`.
-> Uses TinyLlama-1.1B via `transformers` for grounded answer generation with
-> `[doc_id]` citations.
+> Uses TinyLlama-1.1B via `transformers` (FP16 GPU) for grounded answer
+> generation with `[doc_id]` citations.
 
 ---
 
@@ -14,16 +14,19 @@ The RAG pipeline flows:
 UI "Get an answer" → Gateway (/api/rag/answer) → RAG :8005
   1. Call retrieval :8003 / hybrid/bm25 (top-k docs, default k=5)
   2. Fetch full text per doc from preprocessing :8001 /docs/{id}
-  3. Build context window (~2000 tokens, capped)
+  3. Build context window (~800 words / ~1300 BPE tokens, capped)
   4. Format prompt with TinyLlama chat template (<|system|>/<|user|>/<|assistant|>)
-  5. Generate answer (greedy, 256 max tokens)
-  6. Return {answer, source_doc_ids, latency_ms}
+     with EOS tokens (</s>) after each role block
+  5. Generate answer (greedy, 128 max tokens)
+  6. Post-process: detect instruction-echo output, fall back to "I don't know"
+  7. Return {answer, source_doc_ids, latency_ms}
 ```
 
 **Model**: `TinyLlama/TinyLlama-1.1B-Chat-v1.0`
-- 1.1B parameters → ~2.2 GB (fp16 on GPU) / ~4.4 GB (fp32 on CPU)
-- Auto-detects CUDA: fp16 on GPU (~1-3s), fp32 on CPU (~10-20s)
-- Downloads to HuggingFace cache on first call (lazy load)
+- 1.1B parameters → ~2.2 GB VRAM (fp16 on GPU)
+- **GPU (FP16) required** — BF16 CPU is too slow (minutes); FP16 GPU gives ~2.4 tok/s
+- Cold start ~60s (model load), warm ~15-55s depending on context length
+- Gateway downstream timeout set to **180s** to accommodate cold start
 
 ---
 
@@ -65,10 +68,8 @@ UI "Get an answer" → Gateway (/api/rag/answer) → RAG :8005
 |-----------|---------------------|----------------------|
 | Quality | Lower (encoder-decoder) | Higher (decoder-only, chat-tuned) |
 | Download | ~990 MB | ~2.2 GB |
-| CPU latency | ~2-5s | ~10-20s |
-| GPU latency | ~0.5-1s (fp16) | ~1-3s (fp16) |
-| RAM (CPU fp32) | ~1 GB | ~4.4 GB |
-| Prompt format | `text2text-generation` | Chat template (`<|system|>`) |
+| GPU latency | ~0.5-1s (fp16) | ~2-3 tok/s (fp16) |
+| VRAM | ~0.5 GB | ~2.2 GB |
 
 TinyLlama was chosen over the guide's default because the user explicitly
 preferred it (better quality/parameter ratio).
@@ -95,30 +96,63 @@ The RAG service fetches doc texts via the preprocessing service's
 `ir_datasets` cache (`~/.ir_datasets/`) with O(1) PickleLz4FullStore lookups
 — no extra storage, no RAM overhead.
 
+### 3.5 Why `from_pretrained` instead of meta-device + custom safetensors parser
+
+The initial implementation used a custom meta-device model creation + buffered
+safetensors I/O approach to work around:
+- `safe_open` memory-mapping the 2.2 GB file (crashes on Windows with page-file errors)
+- `transformers 4.57.6` requiring `torch ≥ 2.6` for `torch.load()` (CVE-2025-32434)
+
+However, the custom parser produced **garbage output** when converting BF16→FP16
+on the GTX 1650 (Turing cc 7.5 lacks native BF16). Switching to `from_pretrained()`
+with `torch_dtype=torch.float16` and `low_cpu_mem_usage=True`:
+- Loads via safetensors without memory-mapping issues (the HF `from_pretrained`
+  uses `safetensors.torch.load_file()` which mmaps, but it worked after a process
+  restart cleared memory fragmentation)
+- Produces correct FP16 output on GPU (~2.2 GB VRAM)
+- Is simpler (50 lines removed vs custom parser)
+
+### 3.6 Why a post-processing instruction-echo guard
+
+Small LLMs (1.1B) sometimes **regurgitate the system prompt** instead of
+answering, especially when:
+- Retrieved documents don't contain a clear answer
+- The query is broad/"tell me about X" vs specific
+
+The guard in `generator.py:generate()` checks the raw output for trigger
+phrases (`"if the answer is not in the context"`, `"cite sources as [doc_id]"`,
+`"use only the context below"`) and replaces the garbage with:
+```
+"I don't know based on the given documents."
+```
+
 ---
 
 ## 4. Prompt Template
 
-Uses TinyLlama's native chat format:
+Uses TinyLlama's native chat format with **EOS tokens** (`</s>`) after each role
+block (required for proper generation termination):
 
 ```
 <|system|>
 You are a precise assistant. Use ONLY the context below.
 If the answer is not in the context, say "I don't know based on the given documents."
-Cite sources as [doc_id].
+Cite sources as [doc_id].</s>
 <|user|>
 Context:
 [doc_id=xxx] Document text...
 
 [doc_id=yyy] Document text...
 
-Question: {query}
+Question: {query}</s>
 <|assistant|>
 ```
 
 Generation settings:
-- `max_new_tokens=256` — enough for a concise answer with citations
+- `max_new_tokens=128` — enough for a concise answer (reduced from 256 to
+  keep latency manageable on the GTX 1650)
 - `do_sample=False` — greedy decoding, deterministic outputs
+- Post-processing guard catches instruction-echo garbage (see §3.6)
 
 ---
 
@@ -151,8 +185,10 @@ container restarts, so it downloads only once.
 - **RAG service**: `test_answer_empty_results_returns_dont_know`
 - **RAG service**: `test_answer_retrieval_error_returns_502`
 - **RAG service**: `test_answer_partial_missing_docs` (graceful handling)
+- **RAG service**: `test_is_instruction_echo_detects_instruction` (guard unit test)
+- **RAG service**: `test_generator_instruction_guard_catches_echo` (mock pipe integration)
 
-Total: **323 tests** (316 from Phase 7 + 5 new RAG + 2 updated gateway).
+Total: **327 tests** (323 from Phase 7 + 2 new RAG + 2 updated gateway).
 
 ---
 
@@ -168,7 +204,8 @@ Total: **323 tests** (316 from Phase 7 + 5 new RAG + 2 updated gateway).
 | UI "Get an answer" button works, shows answer + sources | ✅ |
 | RAG documented with example outputs | ✅ |
 | Model downloads lazily (not at import time) | ✅ |
-| GPU auto-detect (CUDA fp16 preferred, CPU fp32 fallback) | ✅ |
+| GPU (FP16) inference — not BF16 CPU (too slow) | ✅ |
+| Instruction-echo guard prevents prompt regurgitation | ✅ |
 | Docker named volume for model cache | ✅ |
 
 ---

@@ -85,6 +85,43 @@ def test_answer_retrieval_error_returns_502(mock_search, client: TestClient) -> 
     assert r.status_code == 502
 
 
+def test_is_instruction_echo_detects_instruction() -> None:
+    from services.rag.app.generator import _is_instruction_echo
+
+    assert _is_instruction_echo(
+        'Based on the given documents, the answer is: '
+        '- If the answer is not in the context, say "I don\'t know."'
+    )
+    assert _is_instruction_echo(
+        'Cite sources as [doc_id].'
+    )
+    assert _is_instruction_echo(
+        'Use ONLY the context below'
+    )
+    assert not _is_instruction_echo(
+        'Climate change is caused by human activities. [doc_id=abc-123]'
+    )
+    assert not _is_instruction_echo(
+        'Paris is the capital of France.'
+    )
+
+
+@patch("services.rag.app.generator._pipe")
+def test_generator_instruction_guard_catches_echo(mock_pipe) -> None:
+    from services.rag.app.generator import generate
+
+    mock_pipe.return_value = [{
+        "generated_text": (
+            'Based on the given documents, the answer is: \n'
+            '- If the answer is not in the context, say "I don\'t know."\n'
+            '- Cite sources as [doc_id].'
+        )
+    }]
+    result = generate("test prompt")
+    assert "don't know" in result.lower()
+    assert "If the answer is not in the context" not in result
+
+
 @patch("services.rag.app.service.search_retrieval")
 @patch("services.rag.app.service.fetch_doc_text")
 @patch("services.rag.app.service.generate")

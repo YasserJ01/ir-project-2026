@@ -89,11 +89,12 @@ def answer(req: RagRequest) -> RagResponse:
     # 3. Build context window
     context = build_context(docs)
 
-    # 4. Format prompt with the TinyLlama chat template
+    # 4. Format prompt with the TinyLlama chat template (EOS after each role)
+    eos = "</s>"
     prompt = (
-        f"<|system|>\n{_SYSTEM_PROMPT}\n"
+        f"<|system|>\n{_SYSTEM_PROMPT}{eos}\n"
         f"<|user|>\nContext:\n{context}\n\n"
-        f"Question: {req.query}\n"
+        f"Question: {req.query}{eos}\n"
         f"<|assistant|>\n"
     )
 

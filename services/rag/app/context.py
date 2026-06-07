@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-MAX_CONTEXT_TOKENS = 2000
+MAX_CONTEXT_TOKENS = 800
 
 
 def build_context(docs: list[dict[str, str]]) -> str:

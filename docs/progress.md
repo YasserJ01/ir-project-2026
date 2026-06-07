@@ -146,13 +146,17 @@
 - Full details: [PHASE_7.md](PHASE_7.md).
 
 ## Phase 8 — RAG Service ✅
-- New `services/rag/app/` package on `:8005` with 4 modules: `service.py` (FastAPI), `generator.py` (TinyLlama-1.1B via transformers, lazy load, auto-detect GPU/CUDA fp16), `context.py` (2000-token context window builder), `rag_client.py` (HTTP clients calling retrieval + preprocessing services).
-- Pipeline: `POST /rag/answer` → call retrieval `:8003` hybrid/BM25 (top-k) → fetch doc texts from preprocessing `:8001 /docs/{id}` → build context → format prompt with TinyLlama chat template → greedy generation (256 max tokens) → return `{answer, source_doc_ids, latency_ms}`.
-- **Model**: `TinyLlama/TinyLlama-1.1B-Chat-v1.0` (~2.2 GB download, auto-detects CUDA for fp16 inference at ~1-3s, falls back to CPU fp32 at ~10-20s). Lazy-loaded on first request (not at import time).
-- **Prompt template**: `<|system|>` strict instruction → `<|user|>` context + question → `<|assistant|>` answer with `[doc_id]` citations. "I don't know" when context empty.
-- **Gateway updated**: `POST /api/rag/answer` replaces the Phase 7 501 stub with a real pass-through to `:8005`. `RagClient` added to `GatewayClients`. Pydantic `RagRequest` validates `dataset_id` (Literal), `query`, and `k`.
+- New `services/rag/app/` package on `:8005` with 4 modules: `service.py` (FastAPI), `generator.py` (TinyLlama-1.1B via transformers, lazy load, FP16 GPU), `context.py` (800-word context window builder), `rag_client.py` (HTTP clients calling retrieval + preprocessing services).
+- Pipeline: `POST /rag/answer` → call retrieval `:8003` hybrid/BM25 (top-k) → fetch doc texts from preprocessing `:8001 /docs/{id}` → build context → format prompt with TinyLlama chat template (<code>&lt;/s&gt;</code> EOS after each role) → greedy generation (128 max tokens) → post-process (instruction-echo guard) → return `{answer, source_doc_ids, latency_ms}`.
+- **Model loading**: Uses `transformers.AutoModelForCausalLM.from_pretrained()` with `torch_dtype=torch.float16` + `low_cpu_mem_usage=True`. Custom meta-device + buffered safetensors I/O approach was abandoned because BF16→FP16 conversion on GTX 1650 produced garbage output. `from_pretrained` loads correctly via safetensors without memory-mapping crashes.
+- **Instruction-echo guard**: `_is_instruction_echo()` in `generator.py` detects when the model regurgitates the system prompt ("If the answer is not in the context", "Cite sources as [doc_id]", "Use only the context below") and replaces the output with a clean `"I don't know based on the given documents."`.
+- **Performance**: Cold start ~60s (model load + BM25 + generation), warm ~15-55s depending on context length. GPU (FP16) is mandatory — BF16 CPU takes minutes per query. Gateway downstream timeout increased to **180s**.
+- **EOS tokens**: EOS (`</s>`) added after each role block in the chat template (was missing initially, contributing to prompt-regurgitation).
+- **Context cap**: Reduced from 2000 to 800 tokens (~1300 BPE) to stay within TinyLlama's 2048 `max_position_embeddings` with system prompt + template overhead.
+- **Gateway updated**: `POST /api/rag/answer` replaces the Phase 7 501 stub with a real pass-through to `:8005`. `RagClient` added to `GatewayClients`. Pydantic `RagRequest` validates `dataset_id` (Literal), `query`, and `k`. `GATEWAY_DOWNSTREAM_TIMEOUT` from 30→180s.
 - **Schemas added**: `RagRequest` and `RagResponse` in `shared/ir_common/schemas.py`, re-exported via `services/gateway/app/schemas.py`.
 - **RagPanel UI updated**: removed "Phase 8 preview" header, "501 stub" loading text.
+- **Model download**: TinyLlama `model.safetensors` (2,098 MB) downloaded via custom direct-HTTP streaming script (`scripts/dev/download_tinyllama.py`) because `huggingface_hub.snapshot_download` hangs on 4 Mbps. Stored at `data/models/tinyllama/`.
 - **Docker**: new `rag` service in `docker-compose.yml` with `rag_cache` named volume for HuggingFace model cache persistence.
-- **5 new RAG tests** (health, 422 on unknown dataset, full mocked pipeline, empty results, retrieval error → 502). **323 tests total** (316 + 5 new + 2 updated gateway), all passing. Ruff clean.
+- **327 tests total** (323 prior + 2 new RAG + 2 updated gateway), all passing. Ruff clean. 18 Vitest tests passing.
 - Full details: [PHASE_8.md](PHASE_8.md).
