@@ -1,13 +1,15 @@
 # ─── Stage 1: build the React app ────────────────────────
+# The build context is `./services/ui`, so all COPY paths are
+# relative to that directory.
 FROM node:20-alpine AS build
 WORKDIR /app
 
 # Copy only lockfiles first for better layer caching
-COPY services/ui/package.json services/ui/package-lock.json ./
+COPY package.json package-lock.json ./
 RUN npm ci
 
 # Copy the rest of the UI source
-COPY services/ui/ ./
+COPY . ./
 RUN npm run build
 
 # ─── Stage 2: serve via nginx (production only) ──────────
@@ -16,7 +18,7 @@ LABEL org.opencontainers.image.title="ir-project-2026-ui"
 LABEL org.opencontainers.image.description="React frontend for the IR Search Engine (production build, served by nginx)"
 
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY services/ui/nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 

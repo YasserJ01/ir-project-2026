@@ -24,6 +24,7 @@ services:
       args:
         SERVICE_NAME: retrieval
         BASE_IMAGE: "nvidia/cuda:12.3.0-runtime-ubuntu22.04"
+        TORCH_VARIANT: "cu121"
     image: ir-project/retrieval:gpu
     runtime: nvidia
     environment:

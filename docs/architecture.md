@@ -320,3 +320,18 @@ Aggregated by personalization.py:183-204
 * **CORS** tightened to 4 local-UI origins on every service. Env-driven
   for the gateway (`GATEWAY_CORS_ORIGINS`).
 
+## Live Docker stack status (2026-06-07)
+
+The Docker framework (`docker-compose.yml` + `docker-compose.gpu.yml` +
+`services/backend.Dockerfile` + `services/ui/Dockerfile` +
+`services/ui/nginx.conf`) is **fully implemented and committed** (Phase
+6 commits `ee6eb4e` + `a9e956d`); `docker compose config` validates
+without warnings. **Live validation of the running stack is deferred**:
+of the 6 services, only `gateway` and `ui` were built (then lost in the
+Docker Desktop daemon crash documented in PHASE_6.md §15); the 4
+backend service images are pending a future build session with
+adequate bandwidth. The user's C: drive had 9.51 GB free at the time of
+the crash, which contributed to the BuildKit deadlock; this was
+mitigated by moving Docker storage to G: drive (77.7 GB free) so future
+builds have ample headroom. See [PHASE_6.md §15](PHASE_6.md#15-live-build-session--incident-report-2026-06-06) for the full incident report.
+

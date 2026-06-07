@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.6
 # ─────────────────────────────────────────────────────────────────────────────
 # Shared backend Dockerfile for the IR project (Phase 6).
 #
@@ -19,6 +18,7 @@
 
 ARG BASE_IMAGE=python:3.12-slim
 ARG SERVICE_NAME=preprocessing
+ARG TORCH_VARIANT=cpu
 
 FROM ${BASE_IMAGE}
 
@@ -49,15 +49,29 @@ WORKDIR /app
 
 # Install Python deps first for layer caching. We copy only
 # requirements.txt + pyproject.toml so dependency changes don't
-# invalidate the source copy. The PyTorch index is added because
-# requirements.txt pins `torch==2.5.1+cu121` (only the cu121 build
-# is published on the PyTorch mirror; plain PyPI only has the CPU
-# wheel for cp312).
+# invalidate the source copy.
+#
+# The pip flags:
+#   --default-timeout=600  — give pip 10 min per request before
+#                            timing out (the 4 Mbps link + 780 MB
+#                            torch wheel on Linux can take 25+ min).
+#   --retries=20           — let pip retry on transient network errors.
+#   --extra-index-url      — only added when TORCH_VARIANT=cu121 (GPU
+#                            overlay). Default is the plain CPU wheel
+#                            from PyPI (~200 MB) for the default CPU stack.
 COPY requirements.txt ./requirements.txt
 COPY pyproject.toml ./pyproject.toml
+ARG TORCH_VARIANT
 RUN pip install --upgrade pip \
+    && if [ "$TORCH_VARIANT" = "cu121" ]; then \
+         EXTRA="--extra-index-url https://download.pytorch.org/whl/cu121"; \
+       else \
+         EXTRA=""; \
+       fi \
     && pip install -r requirements.txt \
-        --extra-index-url https://download.pytorch.org/whl/cu121
+        --default-timeout=600 \
+        --retries=20 \
+        $EXTRA
 
 # Copy the rest of the source.
 COPY shared/ ./shared/
