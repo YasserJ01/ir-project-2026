@@ -224,12 +224,16 @@ async def search(request: Request, body: GatewaySearchRequest) -> dict[str, Any]
             tokens = await clients.preprocessing.preprocess(query)
             # For ``tfidf`` we pass model="tfidf" downstream; for
             # ``bm25`` model="bm25". The backend picks the right index.
+            # Phase 7: forward the BM25 k1/b sliders from the UI so
+            # the user can tune the lexical scoring in real time.
             downstream_model = representation
             result = await clients.indexing.search(
                 dataset_id,
                 tokens,
                 model=downstream_model,
                 k=body.k,
+                k1=body.bm25_k1,
+                b=body.bm25_b,
             )
             return result
         # All other representations go straight to :8003. Build a dict

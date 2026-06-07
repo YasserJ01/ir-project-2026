@@ -41,6 +41,13 @@ class GatewaySearchRequest(BaseModel):
     ``query`` and ``dataset_id`` are required so Pydantic returns 422
     on missing/invalid fields. Backend services are more lenient and
     accept these fields as optional.
+
+    Phase 7 addition: ``bm25_k1`` and ``bm25_b`` (Phase 7 UI sliders)
+    are now part of the gateway contract. The gateway forwards them
+    to the indexing service for the ``tfidf``/``bm25`` paths and to
+    the hybrid endpoint (which already accepts them via
+    :class:`~ir_common.schemas.HybridSearchRequest`) for the hybrid
+    paths. Ignored for the ``embedding`` path.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -55,6 +62,11 @@ class GatewaySearchRequest(BaseModel):
     fusion: Literal["rrf", "combsum", "combmnz"] = "rrf"
     user_id: str | None = Field(default=None, max_length=64)
     enable_grammar: bool = False
+    # Phase 7: BM25 hyper-parameters from the UI sliders. Forwarded to
+    # the indexing service (Phase 2) for `tfidf`/`bm25` and to the
+    # hybrid endpoint (Phase 5) for the hybrid paths.
+    bm25_k1: float = Field(default=1.5, ge=0.0, le=10.0)
+    bm25_b: float = Field(default=0.75, ge=0.0, le=1.0)
 
 
 __all__ = [
