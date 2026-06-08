@@ -117,21 +117,31 @@ python scripts/run_evaluation.py      # 36 runs, ~20 min
 
 ## Architecture (high level)
 
-```
-React UI (:5173 / :3000)  ─▶  FastAPI Gateway (:8000)
-                                    │
-                  ┌─────────────────┼──────────────────┐
-                  ▼                 ▼                  ▼
-           Preprocessing        Indexing           Retrieval
-             (:8001)            (:8002)             (:8003)
-                                                    │
-                                          ┌─────────┴─────────┐
-                                          ▼                   ▼
-                                  Refinement (:8004)    RAG (:8005, P8)
+```mermaid
+graph TB
+    UI["React UI (:3000 / :5173)"] -->|"/api/*"| GW["FastAPI Gateway (:8000)"]
+    GW --> PP["Preprocessing (:8001)"]
+    GW --> IX["Indexing (:8002)"]
+    GW --> RT["Retrieval (:8003)"]
+    GW --> RF["Refinement (:8004)"]
+    GW --> RG["RAG (:8005)"]
+    PP -->|"tokens"| IX
+    PP -->|"docs/{id}"| RG
+    IX -->|"BM25/TF-IDF"| RT
+    RT -->|"hybrid/multi-encoder"| RG
+    RF -->|"log/click"| UL[("User Logs<br/>data/user_logs/")]
+    subgraph DATA ["Shared Volume (./data/)"]
+        P[(processed/)]
+        I[(indexes/)]
+        M[(models/)]
+    end
+    IX --> P
+    IX --> I
+    RT --> M
+    RG --> M
 ```
 
-See [docs/architecture.md](docs/architecture.md) for the full diagram + the
-Phase 6 gateway routing table (filled in Phase 6).
+See [docs/architecture.md](docs/architecture.md) for the full gateway routing table.
 
 ## Documentation
 
@@ -150,6 +160,8 @@ Phase 6 gateway routing table (filled in Phase 6).
 - [docs/architecture.md](docs/architecture.md) — system architecture.
 - [docs/dataset_choice.md](docs/dataset_choice.md) — chosen datasets (filled in Phase 1).
 - [docs/progress.md](docs/progress.md) — running progress log.
+- [reports/report_en.md](reports/report_en.md) — final report (English).
+- [reports/report_ar.md](reports/report_ar.md) — final report (Arabic).
 
 ## Repository Layout
 

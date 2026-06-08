@@ -202,3 +202,14 @@
 - **Timing**: BM25 fastest (~19 ms/q), TF-IDF slowest (~857-1695 ms/q).
 - **328 Python tests + 18 Vitest all passing**, ruff clean.
 - Full details: [PHASE_9.md](PHASE_9.md).
+
+## Phase 10 — Hardening, Live Docker Validation & Submission ✅
+- **GPU overlay extended**: `docker-compose.gpu.yml` now overrides `rag` service with CUDA 12.3 base, NVIDIA runtime, and GPU device reservation — alongside the existing `retrieval` override.
+- **Backend Dockerfile updated**: When `TORCH_VARIANT=cu121`, adds `--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121` so the CUDA pre-built wheel is installed instead of compiling from source.
+- **Serial build script**: `scripts/build_docker_all.py` builds all 7 images one-at-a-time (CPU services from `docker-compose.yml`, GPU services from both compose files). Logs to `data/build_docker_phase10.log`.
+- **ESLint flat config fixed**: Created `services/ui/eslint.config.js` for ESLint 9. Installed `typescript-eslint` + `globals`. Removed 2 unused eslint-disable directives. `npm run lint` now passes clean. 18/18 Vitest tests still passing.
+- **Mermaid architecture diagram**: README's ASCII sketch replaced with a proper Mermaid `graph TB` diagram showing all 6 services + shared data volume + communication flow.
+- **Detailed final report (English)**: `reports/report_en.md` — ~5,000 words across 15 sections covering every aspect of the system (SOA, datasets, preprocessing, all 5 representations, indexing, refinement, matching, RAG, UI, evaluation, analysis, challenges, references).
+- **Detailed final report (Arabic)**: `reports/report_ar.md` — Full Arabic translation of all 15 sections including architecture, evaluation tables, analysis, and APA references.
+- **Docker builds running in background** (starting with preprocessing → indexing → refinement → retrieval GPU → rag GPU → gateway → ui). Status: `preprocessing` building Python deps.
+- Full details: [PHASE_10.md](PHASE_10.md).

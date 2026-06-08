@@ -34,7 +34,6 @@ export const api: AxiosInstance = axios.create({
 api.interceptors.response.use(
   (r) => r,
   (err: AxiosError) => {
-    // eslint-disable-next-line no-console
     console.error(
       "[api]",
       err.response?.status,

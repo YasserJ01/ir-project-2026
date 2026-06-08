@@ -18,7 +18,6 @@ export function useUserLog() {
     mutationFn: (payload) => logClick(payload),
     onError: (err) => {
       // Log-clicks must never crash the UI. Swallow + log.
-      // eslint-disable-next-line no-console
       console.warn("[useUserLog] click log failed:", err.message);
     },
   });

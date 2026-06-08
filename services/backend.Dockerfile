@@ -64,7 +64,7 @@ COPY pyproject.toml ./pyproject.toml
 ARG TORCH_VARIANT
 RUN pip install --upgrade pip \
     && if [ "$TORCH_VARIANT" = "cu121" ]; then \
-         EXTRA="--extra-index-url https://download.pytorch.org/whl/cu121"; \
+         EXTRA="--extra-index-url https://download.pytorch.org/whl/cu121 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121"; \
        else \
          EXTRA=""; \
        fi \
