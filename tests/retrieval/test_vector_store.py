@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -197,3 +198,31 @@ def test_load_uses_jsonl_safe_ids(tmp_path: Path) -> None:
     raw = (tmp_path / DOC_IDS_FILENAME).read_text(encoding="utf-8")
     parsed = json.loads(raw)
     assert parsed == ids
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# IndexIVFFlat
+# ─────────────────────────────────────────────────────────────────────────
+
+
+@patch("services.retrieval.app.vector_store.FAISS_INDEX_TYPE", "IndexIVFFlat")
+@patch("services.retrieval.app.vector_store.FAISS_IVF_NLIST", 4)
+def test_ivf_build_and_search(random_vectors: tuple[np.ndarray, list[str]]) -> None:
+    """IndexIVFFlat should build without error and return reasonable results."""
+    vecs, ids = random_vectors
+    idx = DenseIndex()
+    idx.add(vecs, ids, nlist=4)
+    assert idx.size() == len(ids)
+    assert idx.dim() == vecs.shape[1]
+    assert idx.doc_ids == ids
+    # Search — top-1 should be the query itself.
+    q = vecs[0].copy()
+    scores, idx_ids = idx.search(q, k=5)
+    assert scores.shape == (5,)
+    assert idx_ids.shape == (5,)
+    # With 50 vectors and nlist=4, IVF should still find the exact
+    # top-1 (the query itself) in most setups.
+    top1_doc = int(idx_ids[0])
+    assert scores[0] == pytest.approx(1.0, abs=0.1) or top1_doc == 0
+    # Scores are descending.
+    assert (scores[1:] <= scores[:-1] + 1e-5).all()

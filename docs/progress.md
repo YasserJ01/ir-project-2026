@@ -159,4 +159,10 @@
 - **Model download**: TinyLlama `model.safetensors` (2,098 MB) downloaded via custom direct-HTTP streaming script (`scripts/dev/download_tinyllama.py`) because `huggingface_hub.snapshot_download` hangs on 4 Mbps. Stored at `data/models/tinyllama/`.
 - **Docker**: new `rag` service in `docker-compose.yml` with `rag_cache` named volume for HuggingFace model cache persistence.
 - **327 tests total** (323 prior + 2 new RAG + 2 updated gateway), all passing. Ruff clean. 18 Vitest tests passing.
+- **Vector Store hardening (guide §8.1)**:
+  - `IndexIVFFlat` support added to `vector_store.py` — opt-in via `FAISS_INDEX_TYPE=IndexIVFFlat` env var. Configurable `nlist` (default 4096) and `nprobe` (default 16).
+  - `scripts/rebuild_faiss.py` — rebuild entry point with `--force` default and `--ivf` flag.
+  - `scripts/benchmark_faiss.py` — Flat vs IVF latency + recall@10 benchmark using real test queries.
+  - FAISS index type choice documented in PHASE_8.md §9 (Flat vs IVF vs HNSW rationale).
+  - 1 new IVF test: 330 total Python tests (327 prior + 1 vector store + 2 documentation scripts).
 - Full details: [PHASE_8.md](PHASE_8.md).

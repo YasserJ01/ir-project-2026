@@ -113,7 +113,16 @@ MODEL_CACHE_SIZE: int = 2
 # evaluation: every run with the same embeddings returns the same
 # scores). When the corpus grows past ~1M, swap to IndexIVFFlat with
 # nlist=4096, nprobe=16 (guide §3.3).
-FAISS_INDEX_TYPE: str = "IndexFlatIP"
+FAISS_INDEX_TYPE: str = os.environ.get("FAISS_INDEX_TYPE", "IndexFlatIP")
+
+# Number of inverted-list centroids for IndexIVFFlat. FAISS recommends
+# 4*sqrt(N) to 16*sqrt(N) — for 500K docs that's ~2,800 to ~11,300.
+# Default 4096 is a safe middle ground.
+FAISS_IVF_NLIST: int = int(os.environ.get("FAISS_IVF_NLIST", "4096"))
+
+# Number of centroids to probe at search time for IndexIVFFlat.
+# Higher nprobe → better recall, slower search. 16 is a common default.
+FAISS_IVF_NPROBE: int = int(os.environ.get("FAISS_IVF_NPROBE", "16"))
 
 
 # ─────────────────────────────────────────────────────────────────────────
