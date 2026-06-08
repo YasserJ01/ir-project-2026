@@ -1,8 +1,8 @@
 # Information Retrieval System — Project 2026
 
 > A production-grade, service-oriented Information Retrieval (IR) search engine.
-> Two corpora (≥ 200K docs each), five search representations (TF-IDF, BM25, Embedding, Hybrid-Serial, Hybrid-Parallel) plus a 2-encoder fusion (L6 + L12),
-> query refinement, RAG, and a Vector Store — all behind a clean React UI.
+> Two corpora (≥ 200K docs each), five search representations (TF-IDF, BM25, Embedding, Hybrid, Multi-encoder) plus a 2-encoder fusion (L6 + L12),
+> query refinement, RAG (TinyLlama-1.1B GGUF + Vulkan), and FAISS Vector Store — all behind a clean React UI.
 
 ## Status
 
@@ -16,9 +16,9 @@
 | 5 — Query Matching, Ranking & Hybrid | ✅ done | [docs/PHASE_5.md](docs/PHASE_5.md) |
 | 6 — Service-Oriented Architecture (SOA) | ✅ done | [docs/PHASE_6.md](docs/PHASE_6.md) |
 | 7 — User Interface (React + Vite + TS) | ✅ done | [docs/PHASE_7.md](docs/PHASE_7.md) |
-| 8 — Additional Features (Vector Store + RAG) | ✅ done | [docs/PHASE_8.md](docs/PHASE_8.md) |
-| 9 — System Evaluation | ⏳ upcoming | — |
-| 10 — Hardening, Documentation & Submission | ⏳ upcoming | — |
+| 8 — RAG + Vector Store + GGUF Speedup | ✅ done | [docs/PHASE_8.md](docs/PHASE_8.md) |
+| 9 — System Evaluation | ✅ done | [docs/PHASE_9.md](docs/PHASE_9.md) |
+| 10 — Hardening & Live Docker Validation | ⏳ upcoming | — |
 
 ## Stack
 
@@ -108,6 +108,11 @@ docker compose -f docker-compose.yml up -d --build
 # → http://localhost:3000  (UI)
 # → http://localhost:8000  (Gateway, with /health + /api/*)
 # See docs/DOCKER.md for dev vs prod conventions.
+
+# 14. (Optional) Run evaluation (Phase 9)
+python scripts/prep_eval_queries.py   # sample queries with qrels
+python scripts/run_evaluation.py      # 36 runs, ~20 min
+# → results in evaluation/reports/summary.md + plots/
 ```
 
 ## Architecture (high level)
@@ -141,6 +146,7 @@ Phase 6 gateway routing table (filled in Phase 6).
 - [docs/PHASE_6.md](docs/PHASE_6.md) — what was done in Phase 6 (SOA: gateway + Docker Compose + CORS tightening + `log/click` pass-through).
 - [docs/PHASE_7.md](docs/PHASE_7.md) — what was done in Phase 7 (React UI).
 - [docs/PHASE_8.md](docs/PHASE_8.md) — what was done in Phase 8 (RAG service).
+- [docs/PHASE_9.md](docs/PHASE_9.md) — what was done in Phase 9 (evaluation).
 - [docs/architecture.md](docs/architecture.md) — system architecture.
 - [docs/dataset_choice.md](docs/dataset_choice.md) — chosen datasets (filled in Phase 1).
 - [docs/progress.md](docs/progress.md) — running progress log.
