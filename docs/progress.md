@@ -177,3 +177,28 @@
 - **Tests**: 328/328 Python tests + 18 Vitest all pass. Ruff clean.
 - **Fallback**: CUDA backend (`v0.2.88-cu121`) or revert to transformers if Vulkan doesn't work.
 - Full details: [PHASE_8.md §10](PHASE_8.md#10-gguf--llamacpp-vulkan-upgrade).
+
+## Phase 9 — Evaluation ✅
+- **36 evaluation runs** completed at 100% success rate (0 errors, 8,964 search requests across 249 queries).
+- **`ir_measures==0.4.3`** installed (pre-built `pytrec-eval-terrier` Windows wheel). Correct API: `ir.calc(measures, qrels, run) -> CalcResults.aggregated`.
+- **`matplotlib>=3.8`**, **`seaborn>=0.13`** installed for bar plots (4 generated: MAP, P@10, nDCG@10, R@10).
+- **`scripts/prep_eval_queries.py`** -- samples 200 queries/dataset with non-empty qrels (49 for touche2020, 200 for nq).
+- **`scripts/run_evaluation.py`** -- full eval loop using `requests.Session()` (connection reuse critical for speed), warmup covering all 5 representation paths, writes TREC files + CSV + Markdown + 4 bar plots.
+- **Critical bug fix**: BEIR dataset ID mapping (`beir/webis-touche2020` not `beir/touche2020`). Fixed via `DS_TO_BEIR` dict in evaluation script.
+- **Key session-reuse discovery**: Without HTTP connection pooling, every request pays ~2s cold-start (NLTK `punkt_tab` load on each new TCP connection). With `requests.Session()`, subsequent calls are ~2ms. Total eval time: **19 min 14s** (vs estimated 60+ min without session reuse).
+- **Touché-2020 results (49 queries)**:
+  - **BM25 dominates**: P@10=0.7388, nDCG@10=0.6206 -- far exceeding all others.
+  - TF-IDF: P@10=0.1755 (but 1690 ms/query vs BM25's 18 ms).
+  - Embedding: P@10=0.2857, nDCG@10=0.2248.
+  - Multi-encoder: P@10=0.2694, nDCG@10=0.2233 (matches embedding).
+  - Hybrid: identical to embedding (no benefit from BM25 fusion at k=10).
+- **NQ results (200 queries)**:
+  - **Multi-encoder COMBSum leads**: MAP=0.0274, nDCG@10=0.0314.
+  - Embedding: MAP=0.0250, nDCG@10=0.0290.
+  - BM25: MAP=0.0170, nDCG@10=0.0205.
+  - TF-IDF: MAP=0.0078, nDCG@10=0.0106.
+  - NQ absolute scores are extremely low (consistent with BEIR NQ's sparse qrels at k=10 on a 500K corpus).
+- **With_features shows identical results for BM25/TF-IDF** (curated queries are correctly spelled, no click history for personalization). **Slightly lower for embedding** (synonym expansion shifts the semantic vector).
+- **Timing**: BM25 fastest (~19 ms/q), TF-IDF slowest (~857-1695 ms/q).
+- **328 Python tests + 18 Vitest all passing**, ruff clean.
+- Full details: [PHASE_9.md](PHASE_9.md).
