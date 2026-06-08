@@ -26,7 +26,6 @@ ARG SERVICE_NAME
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONPATH=/app \
     SERVICE_NAME=${SERVICE_NAME}
@@ -62,16 +61,22 @@ WORKDIR /app
 COPY requirements.txt ./requirements.txt
 COPY pyproject.toml ./pyproject.toml
 ARG TORCH_VARIANT
-RUN pip install --upgrade pip \
+# --mount=type=cache  keeps downloaded wheels across retries (4 Mbps survival).
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip \
     && if [ "$TORCH_VARIANT" = "cu121" ]; then \
          EXTRA="--extra-index-url https://download.pytorch.org/whl/cu121 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121"; \
        else \
          EXTRA=""; \
        fi \
-    && pip install -r requirements.txt \
-        --default-timeout=600 \
-        --retries=20 \
-        $EXTRA
+    && for i in $(seq 1 5); do \
+         echo "--- pip install attempt $i/5 ---" && \
+         pip install -r requirements.txt \
+             --default-timeout=600 \
+             --retries=5 \
+             $EXTRA && break || \
+         echo "=== pip install failed (attempt $i/5), retrying in 30s ===" && sleep 30; \
+       done
 
 # Copy the rest of the source.
 COPY shared/ ./shared/

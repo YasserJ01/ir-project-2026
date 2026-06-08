@@ -37,6 +37,8 @@ def build_cpu(service: str) -> bool:
     ]
     env = os.environ.copy()
     env["COMPOSE_IGNORE_ORPHANS"] = "True"
+    env["DOCKER_BUILDKIT"] = "1"
+    env["COMPOSE_DOCKER_CLI_BUILD"] = "1"
     # Ensure PATH is set for subprocess (Windows quirk)
     env["PATH"] = os.environ.get("PATH", "") + os.pathsep + os.path.dirname(DOCKER_EXE)
     t0 = time.time()
@@ -58,6 +60,8 @@ def build_gpu(service: str) -> bool:
     ]
     env = os.environ.copy()
     env["COMPOSE_IGNORE_ORPHANS"] = "True"
+    env["DOCKER_BUILDKIT"] = "1"
+    env["COMPOSE_DOCKER_CLI_BUILD"] = "1"
     env["PATH"] = os.environ.get("PATH", "") + os.pathsep + os.path.dirname(DOCKER_EXE)
     t0 = time.time()
     r = subprocess.run(cmd, cwd=REPO_ROOT, env=env, shell=True)
@@ -78,11 +82,17 @@ def main():
     print()
 
     for svc in ALL_SERVICES:
-        if svc in SERVICES_GPU:
-            ok = build_gpu(svc)
+        for attempt in range(1, 4):  # 3 retries per service
+            if svc in SERVICES_GPU:
+                ok = build_gpu(svc)
+            else:
+                ok = build_cpu(svc)
+            if ok:
+                break
+            if attempt < 3:
+                print(f"--- {svc} failed (attempt {attempt}/3), retrying entire service build in 60s ---")
+                time.sleep(60)
         else:
-            ok = build_cpu(svc)
-        if not ok:
             failures.append(svc)
 
     print(f"\n{'='*60}")
