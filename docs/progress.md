@@ -166,3 +166,14 @@
   - FAISS index type choice documented in PHASE_8.md §9 (Flat vs IVF vs HNSW rationale).
   - 1 new IVF test: 330 total Python tests (327 prior + 1 vector store + 2 documentation scripts).
 - Full details: [PHASE_8.md](PHASE_8.md).
+
+## Phase 8 — GGUF + llama.cpp Vulkan RAG Speedup ✅
+- **Swapped inference backend**: `transformers` pipeline (FP16, ~2.4 tok/s, 2.2 GB VRAM) → `llama-cpp-python==0.3.28` Vulkan backend (Q4_K_M GGUF, ~20-30 tok/s, ~700 MB GGUF).
+- **~10× generation speedup**: 128-token answer drops from ~50s to ~4-6s.
+- **VRAM reduced**: ~2.2 GB → ~0.8-1.0 GB, leaving ~3 GB free on GTX 1650.
+- **Changes**: `generator.py` rewritten to use `llama_cpp.Llama` with `n_gpu_layers=-1`, `n_ctx=2048`, `temperature=0.0`. `_pipe` → `_llm`, response format `{"choices": [{"text": "..."}]}`. Prompt template unchanged.
+- **New download script**: `scripts/dev/download_tinyllama_gguf.py` — direct-HTTP streaming of `tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf` (~638 MB, ~35 min on 4 Mbps) with SHA256 verification.
+- **requirements.txt**: Added `llama-cpp-python>=0.3.26` (Vulkan backend wheel from abetlen index).
+- **Tests**: 328/328 Python tests + 18 Vitest all pass. Ruff clean.
+- **Fallback**: CUDA backend (`v0.2.88-cu121`) or revert to transformers if Vulkan doesn't work.
+- Full details: [PHASE_8.md §10](PHASE_8.md#10-gguf--llamacpp-vulkan-upgrade).

@@ -52,6 +52,10 @@ language-tool-python>=2.7
 langchain>=0.2
 transformers>=4.44
 accelerate>=0.33
+# GGUF + llama.cpp Vulkan backend (Phase 8, swapped from transformers pipeline
+# for ~10× speedup). Install with:
+#   pip install llama-cpp-python==0.3.28 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/vulkan
+llama-cpp-python>=0.3.26
 
 # ─── Tooling ──────────────────────────────────────────────
 pytest>=8

@@ -106,17 +106,21 @@ def test_is_instruction_echo_detects_instruction() -> None:
     )
 
 
-@patch("services.rag.app.generator._pipe")
-def test_generator_instruction_guard_catches_echo(mock_pipe) -> None:
+@patch("services.rag.app.generator._llm")
+def test_generator_instruction_guard_catches_echo(mock_llm) -> None:
     from services.rag.app.generator import generate
 
-    mock_pipe.return_value = [{
-        "generated_text": (
-            'Based on the given documents, the answer is: \n'
-            '- If the answer is not in the context, say "I don\'t know."\n'
-            '- Cite sources as [doc_id].'
-        )
-    }]
+    mock_llm.return_value = {
+        "choices": [{
+            "text": (
+                'Based on the given documents, the answer is: \n'
+                '- If the answer is not in the context, say "I don\'t know."\n'
+                '- Cite sources as [doc_id].'
+            ),
+            "index": 0,
+            "finish_reason": "stop",
+        }]
+    }
     result = generate("test prompt")
     assert "don't know" in result.lower()
     assert "If the answer is not in the context" not in result
