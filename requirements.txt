@@ -57,6 +57,11 @@ accelerate>=0.33
 #   pip install llama-cpp-python==0.3.28 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/vulkan
 llama-cpp-python>=0.3.26
 
+# ─── Evaluation (Phase 9) ────────────────────────────────
+ir_measures>=0.4
+matplotlib>=3.8
+seaborn>=0.13
+
 # ─── Tooling ──────────────────────────────────────────────
 pytest>=8
 pytest-asyncio>=0.23
