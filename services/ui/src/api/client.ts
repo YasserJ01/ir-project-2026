@@ -68,7 +68,7 @@ export function refine(req: RefineRequest): Promise<RefineResponse> {
  * changing call sites.
  */
 export function ragAnswer(req: RagRequest): Promise<RagResponse> {
-  return api.post<RagResponse>("/rag/answer", req).then((r) => r.data);
+  return api.post<RagResponse>("/rag/answer", req, { timeout: 180_000 }).then((r) => r.data);
 }
 
 /**
