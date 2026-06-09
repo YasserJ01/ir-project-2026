@@ -18,7 +18,7 @@
 | 7 — User Interface (React + Vite + TS) | ✅ done | [docs/PHASE_7.md](docs/PHASE_7.md) |
 | 8 — RAG + Vector Store + GGUF Speedup | ✅ done | [docs/PHASE_8.md](docs/PHASE_8.md) |
 | 9 — System Evaluation | ✅ done | [docs/PHASE_9.md](docs/PHASE_9.md) |
-| 10 — Hardening & Live Docker Validation | ⏳ upcoming | — |
+| 10 — Hardening & Live Docker Validation | ✅ done | [docs/PHASE_10.md](docs/PHASE_10.md) |
 
 ## Stack
 
