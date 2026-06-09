@@ -193,11 +193,13 @@
   - Multi-encoder: P@10=0.2694, nDCG@10=0.2233 (matches embedding).
   - Hybrid: identical to embedding (no benefit from BM25 fusion at k=10).
 - **NQ results (200 queries)**:
-  - **Multi-encoder COMBSum leads**: MAP=0.0274, nDCG@10=0.0314.
-  - Embedding: MAP=0.0250, nDCG@10=0.0290.
-  - BM25: MAP=0.0170, nDCG@10=0.0205.
-  - TF-IDF: MAP=0.0078, nDCG@10=0.0106.
-  - NQ absolute scores are extremely low (consistent with BEIR NQ's sparse qrels at k=10 on a 500K corpus).
+  - **Multi-encoder COMBSum leads**: MAP=0.4725, nDCG@10=0.5419.
+  - Embedding: MAP=0.4308, nDCG@10=0.5005.
+  - BM25: MAP=0.2930, nDCG@10=0.3540.
+  - TF-IDF: MAP=0.1353, nDCG@10=0.1825.
+  - Multi-encoder achieves 84% of theoretical max P@10 (0.0840/0.12) given NQ's ~1.2 relevant docs per query.
+  - BM25 nDCG@10=0.3540 exceeds published BEIR baseline (0.33), confirming implementation soundness.
+  - Results corrected in commit `c5984b1` (qrel-filtering bug: all 3,452 qrels were loaded but only 200 queries evaluated, diluting metrics 17×).
 - **With_features shows identical results for BM25/TF-IDF** (curated queries are correctly spelled, no click history for personalization). **Slightly lower for embedding** (synonym expansion shifts the semantic vector).
 - **Timing**: BM25 fastest (~19 ms/q), TF-IDF slowest (~857-1695 ms/q).
 - **328 Python tests + 18 Vitest all passing**, ruff clean.
@@ -211,5 +213,10 @@
 - **Mermaid architecture diagram**: README's ASCII sketch replaced with a proper Mermaid `graph TB` diagram showing all 6 services + shared data volume + communication flow.
 - **Detailed final report (English)**: `reports/report_en.md` — ~5,000 words across 15 sections covering every aspect of the system (SOA, datasets, preprocessing, all 5 representations, indexing, refinement, matching, RAG, UI, evaluation, analysis, challenges, references).
 - **Detailed final report (Arabic)**: `reports/report_ar.md` — Full Arabic translation of all 15 sections including architecture, evaluation tables, analysis, and APA references.
-- **Docker builds running in background** (starting with preprocessing → indexing → refinement → retrieval GPU → rag GPU → gateway → ui). Status: `preprocessing` building Python deps.
+- **Docker build incident**: WSL2 vhdx filled G: drive (146 GB full) → `dockerd` crashed with SIGBUS. 2 images built before crash (preprocessing 11 GB, refinement 10.9 GB); all deleted by `docker system prune -af` during recovery.
+- **G: drive recovery**: diskpart compaction shrunk vhdx from 77.57 GB → 3.78 GB, freeing 106 GB. Docker Desktop stable after compaction.
+- **Docker build deferred**: intentionally skipped in favor of native uvicorn workflow. Docker files remain in repo for future use.
+- **NQ evaluation qrel-filtering bug fixed**: `_compute_metrics()` loaded all 3,452 NQ qrels but evaluated only 200 queries, causing ir_measures to average in 3,252 zero-result queries (17× metric dilution). Fixed in commit `c5984b1`.
+- **`start_all.ps1` created**: single-command launcher opens 7 PowerShell windows (one per service) for defense demos. Run `.\start_all.ps1` from repo root.
+- **328 Python tests + 18 Vitest passing**, ruff clean. Git HEAD `c5984b1` pushed to `YasserJ01/ir-project-2026`.
 - Full details: [PHASE_10.md](PHASE_10.md).
