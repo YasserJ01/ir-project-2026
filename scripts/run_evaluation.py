@@ -163,9 +163,11 @@ def _compute_metrics(dataset_id: str, run_id: str) -> dict[str, float]:
                 continue
             run.setdefault(parts[0], {})[parts[2]] = float(parts[4])
 
+    run_qids = set(run.keys())
     qrels: dict[str, dict[str, int]] = {}
     for qrel in ds.qrels_iter():
-        qrels.setdefault(qrel.query_id, {})[qrel.doc_id] = qrel.relevance
+        if qrel.query_id in run_qids:
+            qrels.setdefault(qrel.query_id, {})[qrel.doc_id] = qrel.relevance
 
     measures = [ir.AP @ 10, ir.P @ 10, ir.nDCG @ 10, ir.R @ 10]
     try:
