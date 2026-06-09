@@ -48,7 +48,7 @@ def _is_instruction_echo(text: str) -> bool:
     return any(p in lower for p in _INSTRUCTION_PHRASES)
 
 
-def generate(prompt: str, max_new_tokens: int = 128) -> str:
+def generate(prompt: str, max_new_tokens: int) -> str:
     if _llm is None:
         _load()
 

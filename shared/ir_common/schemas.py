@@ -732,6 +732,19 @@ class RagRequest(BaseModel):
     dataset_id: Literal["touche2020", "nq"] = Field(..., description="Which corpus to search.")
     query: str = Field(..., min_length=1, max_length=4096, description="The user's question.")
     k: int = Field(default=5, ge=1, le=50, description="Number of documents to retrieve for context.")
+    max_tokens: int = Field(
+        default=256, ge=64, le=1024,
+        description="Maximum tokens in the generated answer.",
+    )
+    retriever: Literal["bm25", "embedding", "hybrid_parallel"] = Field(
+        default="embedding",
+        description=(
+            "Which retrieval method to use for context documents. "
+            "`embedding` provides the best semantic matches; "
+            "`bm25` is faster but lexical-only; "
+            "`hybrid_parallel` fuses both."
+        ),
+    )
 
 
 class RagResponse(BaseModel):
@@ -745,6 +758,10 @@ class RagResponse(BaseModel):
         description="Ordered list of doc_ids used as context (in ranking order).",
     )
     latency_ms: float = Field(0.0, description="End-to-end latency (search + generation).")
+    refined_query: str | None = Field(
+        default=None,
+        description="Spell-corrected + synonym-expanded query if refinement was applied.",
+    )
 
 
 class GatewayHealthResponse(BaseModel):

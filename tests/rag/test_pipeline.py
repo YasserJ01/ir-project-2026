@@ -121,7 +121,7 @@ def test_generator_instruction_guard_catches_echo(mock_llm) -> None:
             "finish_reason": "stop",
         }]
     }
-    result = generate("test prompt")
+    result = generate("test prompt", max_new_tokens=128)
     assert "don't know" in result.lower()
     assert "If the answer is not in the context" not in result
 

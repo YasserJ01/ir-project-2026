@@ -11,7 +11,7 @@ from shared.ir_common.schemas import DATASET_IDS, RagRequest, RagResponse
 
 from .context import build_context
 from .generator import generate
-from .rag_client import RagClientError, fetch_doc_text, search_retrieval
+from .rag_client import RagClientError, fetch_doc_text, refine_query, search_retrieval
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -59,17 +59,22 @@ def answer(req: RagRequest) -> RagResponse:
 
     t0 = time.perf_counter()
 
-    # 1. Retrieve top-k docs from the retrieval service
+    # 1. Expand query via refinement service (spell + synonyms)
+    expanded_query = refine_query(req.query)
+
+    # 2. Retrieve top-k docs from the retrieval service
     try:
-        results = search_retrieval(req.dataset_id, req.query, k=req.k)
+        results = search_retrieval(req.dataset_id, expanded_query, k=req.k, representation=req.retriever)
     except RagClientError as exc:
         raise HTTPException(502, str(exc)) from exc
 
     if not results:
+        refined = expanded_query if expanded_query != req.query else None
         return RagResponse(
             answer="I don't know based on the given documents.",
             source_doc_ids=[],
             latency_ms=(time.perf_counter() - t0) * 1000,
+            refined_query=refined,
         )
 
     # 2. Fetch full text for each result
@@ -100,16 +105,18 @@ def answer(req: RagRequest) -> RagResponse:
 
     # 5. Generate answer
     try:
-        answer_text = generate(prompt)
+        answer_text = generate(prompt, max_new_tokens=req.max_tokens)
     except Exception as exc:
         raise HTTPException(500, f"Generation failed: {exc}") from exc
 
     elapsed = (time.perf_counter() - t0) * 1000
 
+    refined = expanded_query if expanded_query != req.query else None
     return RagResponse(
         answer=answer_text or "I don't know based on the given documents.",
         source_doc_ids=doc_ids,
         latency_ms=round(elapsed, 1),
+        refined_query=refined,
     )
 
 

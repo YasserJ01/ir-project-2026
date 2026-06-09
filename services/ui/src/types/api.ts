@@ -119,17 +119,20 @@ export interface LogClickRequest {
   ts?: number | null;
 }
 
-/** Body for `POST /api/rag/answer` (Phase 8 — gateway returns 501 for now). */
+/** Body for `POST /api/rag/answer`. */
 export interface RagRequest {
   dataset_id: DatasetId;
   query: string;
   k?: number;
+  max_tokens?: number;
+  retriever?: "bm25" | "embedding" | "hybrid_parallel";
 }
 
 export interface RagResponse {
   answer?: string;
   source_doc_ids?: string[];
   latency_ms?: number;
+  refined_query?: string | null;
 }
 
 /** Response from `GET /api/docs/{dataset_id}/{doc_id}`. */
