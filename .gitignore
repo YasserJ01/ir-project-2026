@@ -61,6 +61,7 @@ data/downloads/*
 !data/**/.gitkeep
 # Logs + scratch files + pid files written at data/ root by background scripts
 data/*.log
+data/*.err
 data/*.json
 data/*.pid
 !data/.gitkeep

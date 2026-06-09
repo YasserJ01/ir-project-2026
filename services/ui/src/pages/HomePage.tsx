@@ -18,8 +18,9 @@
  * does the actual fetch and caching.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearch, errorMessage } from "../hooks/useSearch";
+import { useDarkMode } from "../hooks/useDarkMode";
 import { useUiStore } from "../store/useUiStore";
 import type { SearchRequest } from "../types/api";
 import DatasetSelector from "../components/DatasetSelector";
@@ -46,9 +47,11 @@ export default function HomePage() {
   const fusion = useUiStore((s) => s.fusion);
   const bm25 = useUiStore((s) => s.bm25);
   const userId = useUiStore((s) => s.userId);
+  const [dark, toggleDark] = useDarkMode();
 
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState("");
+  const resultsRef = useRef<HTMLDivElement>(null);
 
   // The `SearchRequest` body. We include bm25 k1/b for the lexical
   // and hybrid paths; the backend ignores them for `embedding`.
@@ -74,6 +77,12 @@ export default function HomePage() {
 
   const { data, isFetching, error, refetch } = useSearch(req);
 
+  useEffect(() => {
+    if (data && resultsRef.current) {
+      resultsRef.current.focus();
+    }
+  }, [data]);
+
   const onSubmit = () => {
     setSubmitted(query);
     // refetch immediately in case useSearch hasn't seen the new key yet
@@ -97,18 +106,28 @@ export default function HomePage() {
   const showFusion = representation === "hybrid_parallel";
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="border-b border-slate-200 bg-white shadow-sm">
+    <main className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+      <header className="border-b border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <div className="mx-auto flex max-w-5xl items-baseline justify-between p-4">
           <h1 className="text-2xl font-bold">IR Search Engine — 2026</h1>
-          <a
-            href="/health"
-            className="text-xs text-slate-500 hover:underline"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            gateway health
-          </a>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={toggleDark}
+              className="text-xs text-slate-500 hover:underline"
+              aria-label="Toggle dark mode"
+            >
+              {dark ? "☀️ light" : "🌙 dark"}
+            </button>
+            <a
+              href="/health"
+              className="text-xs text-slate-500 hover:underline"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              gateway health
+            </a>
+          </div>
         </div>
       </header>
 
@@ -137,7 +156,7 @@ export default function HomePage() {
         </div>
 
         {submitted.length === 0 ? (
-          <div className="rounded-md border border-slate-200 bg-white p-3 text-sm">
+          <div className="rounded-md border border-slate-200 bg-white p-3 text-sm dark:border-slate-700 dark:bg-slate-800">
             <p className="mb-2 text-slate-600">
               Try one of these sample queries:
             </p>
@@ -150,7 +169,7 @@ export default function HomePage() {
                     setQuery(q);
                     setSubmitted(q);
                   }}
-                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 transition hover:border-indigo-400 hover:text-indigo-700"
+                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 transition hover:border-indigo-400 hover:text-indigo-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
                 >
                   {q}
                 </button>
@@ -158,20 +177,22 @@ export default function HomePage() {
             </div>
           </div>
         ) : (
-          <ResultsList
-            hits={data?.results ?? []}
-            loading={isFetching}
-            error={error ? errorMessage(error) : null}
-            query={submitted}
-            datasetId={dataset}
-            highlightTerms={highlightTerms}
-          />
+          <div ref={resultsRef} tabIndex={-1}>
+            <ResultsList
+              hits={data?.results ?? []}
+              loading={isFetching}
+              error={error ? errorMessage(error) : null}
+              query={submitted}
+              datasetId={dataset}
+              highlightTerms={highlightTerms}
+            />
+          </div>
         )}
 
         <RagPanel query={submitted} dataset={dataset} enabled={submitted.length > 0} />
       </section>
 
-      <footer className="mx-auto max-w-5xl p-4 text-center text-xs text-slate-400">
+      <footer className="mx-auto max-w-5xl p-4 text-center text-xs text-slate-400 dark:text-slate-500">
         Phase 7 · React 18 + Vite 5 + TypeScript 5 + Tailwind 3 ·
         {" "}
         <a

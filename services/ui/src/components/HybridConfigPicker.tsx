@@ -36,7 +36,7 @@ export default function HybridConfigPicker() {
 
   return (
     <fieldset className="block">
-      <legend className="block text-sm font-medium text-slate-700">
+      <legend className="block text-sm font-medium text-slate-700 dark:text-slate-200">
         Fusion (parallel hybrid only)
       </legend>
       <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -46,7 +46,7 @@ export default function HybridConfigPicker() {
             className={`flex cursor-pointer flex-col rounded-md border p-2 transition ${
               fusion === f.value
                 ? "border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500"
-                : "border-slate-300 bg-white hover:border-slate-400"
+                : "border-slate-300 bg-white hover:border-slate-400 dark:border-slate-600 dark:bg-slate-800"
             }`}
           >
             <div className="flex items-center gap-2">
@@ -58,11 +58,11 @@ export default function HybridConfigPicker() {
                 onChange={() => setFusion(f.value)}
                 className="h-4 w-4 text-indigo-600"
               />
-              <span className="text-sm font-semibold text-slate-800">
+              <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
                 {f.label}
               </span>
             </div>
-            <span className="ml-6 text-xs text-slate-500">{f.hint}</span>
+            <span className="ml-6 text-xs text-slate-500 dark:text-slate-400">{f.hint}</span>
           </label>
         ))}
       </div>

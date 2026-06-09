@@ -12,15 +12,15 @@ interface Props {
 export default function LatencyBadge({ ms, fellBack }: Props) {
   if (ms === undefined) {
     return (
-      <div className="text-xs text-slate-400" aria-live="polite">
+      <div className="text-xs text-slate-400 dark:text-slate-500" aria-live="polite">
         —
       </div>
     );
   }
   return (
-    <div className="flex items-center gap-2 text-xs text-slate-500" aria-live="polite">
+    <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400" aria-live="polite">
       <span
-        className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 font-mono text-slate-700"
+        className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 font-mono text-slate-700 dark:bg-slate-700 dark:text-slate-200"
         title="End-to-end latency reported by the gateway"
       >
         <svg

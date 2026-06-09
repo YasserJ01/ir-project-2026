@@ -9,7 +9,7 @@
  *   - Errors are surfaced as a red banner.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ragAnswer, errorMessage } from "../api/client";
 import type { DatasetId } from "../types/api";
 
@@ -26,6 +26,10 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
   const [sources, setSources] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setOpen(false);
+  }, [query]);
 
   if (!enabled) return null;
 
@@ -49,9 +53,9 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
   }
 
   return (
-    <section className="rounded-md border border-slate-200 bg-white p-3 shadow-sm">
+    <section className="rounded-md border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-600 dark:bg-slate-800">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-800">
+        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
           RAG answer
         </h2>
         <button
@@ -66,7 +70,7 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
       {open && (
         <div className="mt-2 space-y-2 text-sm">
           {loading && (
-            <p className="animate-pulse text-slate-500">
+            <p className="animate-pulse text-slate-500 dark:text-slate-400">
               Generating answer…
             </p>
           )}
@@ -80,9 +84,9 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
           )}
           {answer && (
             <div>
-              <p className="text-slate-800">{answer}</p>
+              <p className="text-slate-800 dark:text-slate-100">{answer}</p>
               {sources.length > 0 && (
-                <p className="mt-2 text-xs text-slate-500">
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                   Sources: {sources.map((s) => s).join(", ")}
                 </p>
               )}

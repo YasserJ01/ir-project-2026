@@ -220,3 +220,17 @@
 - **`start_all.ps1` created**: single-command launcher opens 7 PowerShell windows (one per service) for defense demos. Run `.\start_all.ps1` from repo root.
 - **328 Python tests + 18 Vitest passing**, ruff clean. Git HEAD `c5984b1` pushed to `YasserJ01/ir-project-2026`.
 - Full details: [PHASE_10.md](PHASE_10.md).
+
+## Post-Phase-10 — UI Enhancements & Start Script Fixes ✅
+- **`start_all.ps1` fixed**: `&` → `.` for venv activation (PowerShell 5.1 parser bug), and RAG module path corrected from `services.rag.app.main:app` → `services.rag.app.service:app`.
+- **7 UI enhancements implemented in `services/ui/`**:
+  1. **`keepPreviousData`** (`useSearch.ts`): Old results stay visible during re-fetch, eliminating loading flash when changing sliders/mode.
+  2. **RagPanel open reset** (`RagPanel.tsx`): Panel collapses on query change to avoid stale answer flash.
+  3. **Bm25Sliders reset race fix** (`Bm25Sliders.tsx`): Reset button clears the debounce timer before committing defaults, preventing ghost reverts.
+  4. **`React.memo` on ResultCard** (`ResultCard.tsx`): Prevents all 10 cards re-rendering on every store change.
+  5. **Focus management** (`HomePage.tsx`): Results container receives keyboard focus after search completes for screen reader announcement.
+  6. **ErrorBoundary** (new `ErrorBoundary.tsx`): Wraps `HomePage` in `App.tsx` — a crash shows a friendly "Try again" button instead of a blank page.
+  7. **Dark mode toggle** (`tailwind.config.js` `darkMode: "class"`, new `useDarkMode.ts` hook, toggle button in header, `dark:` variants on all 10 components). Persisted in localStorage.
+- **18/18 Vitest tests pass**. `tsc -b` clean. `vite build` succeeds (163 modules, 256.83 kB JS, 2.03 s).
+- All 7 services verified running via `start_all.ps1` — health checks pass on :8000–:8005 + :5173.
+- Full details: updated commit log (HEAD: `a9608c6` → pending).

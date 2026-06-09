@@ -31,23 +31,32 @@ export default function Bm25Sliders() {
     setLocal(bm25);
   }, [bm25]);
 
-  function commit(next: typeof bm25) {
+  function commit(next: typeof bm25, immediate = false) {
     setLocal(next);
     if (timer.current !== null) {
       window.clearTimeout(timer.current);
+      timer.current = null;
     }
-    timer.current = window.setTimeout(() => {
+    if (immediate) {
       setBm25(next);
-    }, DEBOUNCE_MS);
+    } else {
+      timer.current = window.setTimeout(() => {
+        setBm25(next);
+      }, DEBOUNCE_MS);
+    }
   }
 
   return (
-    <div className="block rounded-md border border-slate-200 bg-white p-3">
+    <div className="block rounded-md border border-slate-200 bg-white p-3 dark:border-slate-600 dark:bg-slate-800">
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-sm font-medium text-slate-700">BM25</span>
+        <span className="text-sm font-medium text-slate-700 dark:text-slate-200">BM25</span>
         <button
           type="button"
-          onClick={reset}
+          onClick={() => {
+            const defaults = { k1: 1.5, b: 0.75 };
+            commit(defaults, true);
+            reset();
+          }}
           className="text-xs font-medium text-indigo-600 hover:underline"
         >
           Reset
@@ -56,8 +65,8 @@ export default function Bm25Sliders() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-600">k1 (term-frequency saturation)</span>
-            <span className="font-mono text-xs text-slate-700">
+            <span className="text-xs text-slate-600 dark:text-slate-300">k1 (term-frequency saturation)</span>
+            <span className="font-mono text-xs text-slate-700 dark:text-slate-100">
               {local.k1.toFixed(2)}
             </span>
           </div>
@@ -75,8 +84,8 @@ export default function Bm25Sliders() {
         </label>
         <label className="block">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-600">b (length normalization)</span>
-            <span className="font-mono text-xs text-slate-700">
+            <span className="text-xs text-slate-600 dark:text-slate-300">b (length normalization)</span>
+            <span className="font-mono text-xs text-slate-700 dark:text-slate-100">
               {local.b.toFixed(2)}
             </span>
           </div>

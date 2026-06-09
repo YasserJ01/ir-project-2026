@@ -13,7 +13,7 @@
  * so this is belt-and-suspenders).
  */
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { search, errorMessage } from "../api/client";
 import type {
   ApiError,
@@ -30,6 +30,7 @@ export function useSearch(
     queryFn: () => search(req),
     staleTime: 30_000,
     retry: 1,
+    placeholderData: keepPreviousData,
   });
 }
 

@@ -18,11 +18,11 @@ export default function DatasetSelector() {
 
   return (
     <label className="block">
-      <span className="block text-sm font-medium text-slate-700">
+      <span className="block text-sm font-medium text-slate-700 dark:text-slate-200">
         Dataset
       </span>
       <select
-        className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-slate-100"
+        className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
         value={dataset}
         onChange={(e) => setDataset(e.target.value as typeof dataset)}
         disabled={isLoading || isError}
@@ -40,7 +40,7 @@ export default function DatasetSelector() {
           </option>
         ))}
       </select>
-      <span className="mt-1 block text-xs text-slate-500">
+      <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
         Choose the corpus to search.
       </span>
     </label>

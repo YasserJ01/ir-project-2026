@@ -34,7 +34,7 @@ export default function ResultsList({
         {[0, 1, 2].map((i) => (
           <li
             key={i}
-            className="h-20 animate-pulse rounded-md border border-slate-200 bg-slate-100"
+            className="h-20 animate-pulse rounded-md border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-700"
           />
         ))}
       </ul>
@@ -54,7 +54,7 @@ export default function ResultsList({
 
   if (hits.length === 0) {
     return (
-      <div className="rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-500">
+      <div className="rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
         No results. Try a different query or representation.
       </div>
     );

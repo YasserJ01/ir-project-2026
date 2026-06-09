@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import React, { useCallback, useState } from "react";
 import type { DatasetId, SearchHit } from "../types/api";
 import { fetchDoc } from "../api/client";
 import { highlight, snippet } from "../utils/highlight";
@@ -12,7 +12,7 @@ interface Props {
   highlightTerms: string[];
 }
 
-export default function ResultCard({
+export default React.memo(function ResultCard({
   hit,
   query,
   datasetId,
@@ -60,30 +60,30 @@ export default function ResultCard({
   }, [expanded, log, userId, query, hit.doc_id, datasetId, docText, docError]);
 
   return (
-    <li className="rounded-md border border-slate-200 bg-white shadow-sm transition hover:border-indigo-300">
+    <li className="rounded-md border border-slate-200 bg-white shadow-sm transition hover:border-indigo-300 dark:border-slate-600 dark:bg-slate-800">
       <div className="flex items-start gap-3 p-3">
         <span
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200"
           aria-label={`Rank ${hit.rank}`}
         >
           {hit.rank}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-2">
-            <code className="break-all font-mono text-xs text-slate-600">
+            <code className="break-all font-mono text-xs text-slate-600 dark:text-slate-300">
               {hit.doc_id}
             </code>
-            <span className="font-mono text-xs text-slate-500">
+            <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
               score={hit.score.toFixed(4)}
             </span>
           </div>
-          <p className="mt-1 text-sm text-slate-700">
+          <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
             {highlight(preview, highlightTerms)}
           </p>
           {hit.individual_scores &&
             Object.keys(hit.individual_scores).length > 0 && (
-              <p className="mt-1 text-xs text-slate-500">
-                per-retriever:{" "}
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                per-retriever: {" "}
                 {Object.entries(hit.individual_scores)
                   .map(([k, v]) => `${k}=${v.toFixed(3)}`)
                   .join(", ")}
@@ -99,7 +99,7 @@ export default function ResultCard({
         </button>
       </div>
       {expanded && (
-        <div className="border-t border-slate-200 px-3 pb-3">
+        <div className="border-t border-slate-200 px-3 pb-3 dark:border-slate-600">
           {loadingDoc && (
             <p className="mt-2 animate-pulse text-sm text-slate-500">
               Loading document text…
@@ -111,7 +111,7 @@ export default function ResultCard({
             </p>
           )}
           {docText && (
-            <pre className="mt-2 max-h-96 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-slate-50 p-3 font-mono text-xs leading-relaxed text-slate-800">
+            <pre className="mt-2 max-h-96 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-slate-50 p-3 font-mono text-xs leading-relaxed text-slate-800 dark:bg-slate-700 dark:text-slate-100">
               {docText}
             </pre>
           )}
@@ -119,4 +119,4 @@ export default function ResultCard({
       )}
     </li>
   );
-}
+});

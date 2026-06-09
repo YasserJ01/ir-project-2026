@@ -1,3 +1,4 @@
+import ErrorBoundary from "./components/ErrorBoundary";
 import HomePage from "./pages/HomePage";
 
 /**
@@ -6,7 +7,11 @@ import HomePage from "./pages/HomePage";
  * renders the single HomePage route.
  */
 function App() {
-  return <HomePage />;
+  return (
+    <ErrorBoundary>
+      <HomePage />
+    </ErrorBoundary>
+  );
 }
 
 export default App;
