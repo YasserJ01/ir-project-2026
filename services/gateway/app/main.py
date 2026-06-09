@@ -22,6 +22,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # Force UTF-8 on Windows before any logging/output.
@@ -336,6 +337,25 @@ async def rag_answer(request: Request, body: RagRequest) -> dict[str, Any]:
         return await clients.rag.answer(body.model_dump())
     except (BackendUnreachable, BackendClientError) as exc:
         raise _downstream_error_response(exc) from exc
+
+
+@app.post("/api/rag/answer/stream")
+async def rag_answer_stream(request: Request, body: RagRequest):
+    """SSE pass-through to :8005 ``/rag/answer/stream``."""
+    clients = _clients(request)
+    try:
+        resp = await clients.rag.answer_stream(body.model_dump())
+    except (BackendUnreachable, BackendClientError) as exc:
+        raise _downstream_error_response(exc) from exc
+    return StreamingResponse(
+        resp.aiter_bytes(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────

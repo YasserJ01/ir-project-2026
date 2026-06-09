@@ -9,8 +9,8 @@
  *   - Errors are surfaced as a red banner.
  */
 
-import { useEffect, useState } from "react";
-import { ragAnswer, errorMessage } from "../api/client";
+import { useEffect, useRef, useState } from "react";
+import { ragAnswer, ragAnswerStream, errorMessage } from "../api/client";
 import type { DatasetId } from "../types/api";
 
 interface Props {
@@ -34,6 +34,9 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
   const [err, setErr] = useState<string | null>(null);
   const [retriever, setRetriever] = useState<"bm25" | "embedding" | "hybrid_parallel">("embedding");
   const [refinedQuery, setRefinedQuery] = useState<string | null>(null);
+  const [streaming, setStreaming] = useState(true);
+  const [stage, setStage] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setOpen(false);
@@ -49,16 +52,52 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
     setErr(null);
     setAnswer(null);
     setSources([]);
-    try {
-      const r = await ragAnswer({ query, dataset_id: dataset, k: 5, max_tokens: 256, retriever });
-      setAnswer(r.answer ?? "(no answer returned)");
-      setSources(r.source_doc_ids ?? []);
-      setRefinedQuery(r.refined_query ?? null);
-    } catch (e) {
-      setErr(errorMessage(e));
-    } finally {
-      setLoading(false);
+    setRefinedQuery(null);
+    setStage(null);
+
+    if (!streaming) {
+      try {
+        const r = await ragAnswer({ query, dataset_id: dataset, k: 5, max_tokens: 256, retriever });
+        setAnswer(r.answer ?? "(no answer returned)");
+        setSources(r.source_doc_ids ?? []);
+        setRefinedQuery(r.refined_query ?? null);
+      } catch (e) {
+        setErr(errorMessage(e));
+      } finally {
+        setLoading(false);
+      }
+      return;
     }
+
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    await ragAnswerStream(
+      { query, dataset_id: dataset, k: 5, max_tokens: 256, retriever },
+      {
+        onStage: (s, data) => {
+          setStage(s);
+          if (data.source_doc_ids) setSources(data.source_doc_ids as string[]);
+          if (data.refined_query) setRefinedQuery(data.refined_query as string);
+        },
+        onToken: (token) => {
+          setAnswer((prev) => (prev ?? "") + token);
+        },
+        onDone: (ans, srcs, _latency, refined) => {
+          setAnswer(ans);
+          setSources(srcs);
+          setRefinedQuery(refined);
+          setLoading(false);
+          setStage(null);
+        },
+        onError: (msg) => {
+          setErr(msg);
+          setLoading(false);
+          setStage(null);
+        },
+      },
+      ctrl.signal,
+    );
   }
 
   return (
@@ -80,6 +119,15 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
               </option>
             ))}
           </select>
+          <label className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+            <input
+              type="checkbox"
+              checked={streaming}
+              onChange={(e) => setStreaming(e.target.checked)}
+              className="h-3 w-3 rounded border-slate-300 text-indigo-600"
+            />
+            Stream
+          </label>
           <button
             type="button"
             disabled={!canAsk}
@@ -98,9 +146,14 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
               <span className="font-medium">{refinedQuery}</span>
             </p>
           )}
-          {loading && (
+          {stage && (
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              {stage === "retrieval" ? "Retrieving documents…" : stage}
+            </p>
+          )}
+          {loading && !stage && (
             <p className="animate-pulse text-slate-500 dark:text-slate-400">
-              Generating answer…
+              {streaming ? "Generating…" : "Generating answer…"}
             </p>
           )}
           {err && (

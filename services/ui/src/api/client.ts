@@ -70,6 +70,73 @@ export function ragAnswer(req: RagRequest): Promise<RagResponse> {
   return api.post<RagResponse>("/rag/answer", req, { timeout: 180_000 }).then((r) => r.data);
 }
 
+export interface RagStreamCallbacks {
+  onToken: (token: string) => void;
+  onDone: (answer: string, sources: string[], latencyMs: number, refinedQuery: string | null) => void;
+  onError: (err: string) => void;
+  onStage?: (stage: string, data: Record<string, unknown>) => void;
+}
+
+export async function ragAnswerStream(
+  req: RagRequest,
+  callbacks: RagStreamCallbacks,
+  signal?: AbortSignal,
+): Promise<void> {
+  const resp = await fetch("/api/rag/answer/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+    signal,
+  });
+  if (!resp.ok) {
+    let detail = "RAG stream request failed";
+    try {
+      const body = await resp.json();
+      if (body?.detail) detail = String(body.detail);
+    } catch { /* ignore */ }
+    callbacks.onError(detail);
+    return;
+  }
+  const reader = resp.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop()!;
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const raw = line.slice(6);
+      if (raw === "[DONE]") return;
+      try {
+        const payload = JSON.parse(raw);
+        if (payload.stage) {
+          callbacks.onStage?.(payload.stage, payload);
+        } else if (payload.done) {
+          callbacks.onDone(
+            payload.answer ?? "",
+            payload.source_doc_ids ?? [],
+            payload.latency_ms ?? 0,
+            payload.refined_query ?? null,
+          );
+        } else if (payload.override) {
+          callbacks.onDone(
+            payload.answer ?? "",
+            payload.source_doc_ids ?? [],
+            payload.latency_ms ?? 0,
+            payload.refined_query ?? null,
+          );
+        } else if (payload.token !== undefined) {
+          callbacks.onToken(payload.token);
+        }
+      } catch { /* skip malformed */ }
+    }
+  }
+}
+
 /**
  * `GET /datasets` → the canonical list of corpus ids. Mirrors
  * `shared.ir_common.schemas.DATASET_IDS`.

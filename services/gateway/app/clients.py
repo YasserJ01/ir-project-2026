@@ -88,6 +88,31 @@ class _BaseClient:
     async def _post_json(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         return await self._request_json("POST", path, json_body=body)
 
+    async def _post_stream(self, path: str, body: dict[str, Any]) -> httpx.Response:
+        """POST and return the raw ``httpx.Response`` (for SSE proxying).
+
+        The caller is responsible for consuming the response body
+        (e.g. via ``response.aiter_bytes()``). Error handling follows
+        the same pattern as ``_request_json``.
+        """
+        client = self._require()
+        try:
+            r = await client.request("POST", path, json=body)
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError) as exc:
+            raise BackendUnreachable(self.service_name, self.base_url, exc) from exc
+        except httpx.HTTPError as exc:
+            raise BackendUnreachable(self.service_name, self.base_url, exc) from exc
+        if r.status_code >= 400:
+            detail = ""
+            try:
+                body_data = r.json()
+                if isinstance(body_data, dict) and "detail" in body_data:
+                    detail = str(body_data["detail"])
+            except Exception:  # noqa: BLE001
+                detail = r.text[:200]
+            raise BackendClientError(self.service_name, r.status_code, detail)
+        return r
+
     async def _get_json(self, path: str) -> dict[str, Any]:
         return await self._request_json("GET", path)
 
@@ -202,6 +227,14 @@ class RagClient(_BaseClient):
 
     async def answer(self, body: dict[str, Any]) -> dict[str, Any]:
         return await self._post_json("/rag/answer", body)
+
+    async def answer_stream(self, body: dict[str, Any]) -> httpx.Response:
+        """POST ``/rag/answer/stream`` and return the raw SSE response.
+
+        The caller (``main.py``) wraps this in a
+        ``fastapi.responses.StreamingResponse``.
+        """
+        return await self._post_stream("/rag/answer/stream", body)
 
 
 # ─────────────────────────────────────────────────────────────────────────

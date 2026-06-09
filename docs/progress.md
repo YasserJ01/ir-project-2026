@@ -221,7 +221,7 @@
 - **328 Python tests + 18 Vitest passing**, ruff clean. Git HEAD `c5984b1` pushed to `YasserJ01/ir-project-2026`.
 - Full details: [PHASE_10.md](PHASE_10.md).
 
-## Session 2026-06-09 — UI Enhancements + RAG Configurability ✅
+## Session 2026-06-09 — UI Enhancements + RAG A/B/C (configurability) ✅
 - **`start_all.ps1` fixed**: `&` → `.` for venv activation (PowerShell 5.1 parser bug), and RAG module path corrected from `services.rag.app.main:app` → `services.rag.app.service:app`.
 - **7 UI enhancements implemented in `services/ui/`**:
   1. **`keepPreviousData`** (`useSearch.ts`): Old results stay visible during re-fetch, eliminating loading flash when changing sliders/mode.
@@ -231,9 +231,9 @@
   5. **Focus management** (`HomePage.tsx`): Results container receives keyboard focus after search completes for screen reader announcement.
   6. **ErrorBoundary** (new `ErrorBoundary.tsx`): Wraps `HomePage` in `App.tsx` — a crash shows a friendly "Try again" button instead of a blank page.
   7. **Dark mode toggle** (`tailwind.config.js` `darkMode: "class"`, new `useDarkMode.ts` hook, toggle button in header, `dark:` variants on all 10 components). Persisted in localStorage.
-- **RAG enhancement A — Configurable `max_tokens`**: `RagRequest.max_tokens` added (default 256, range 64–1024). `generator.py`'s `max_new_tokens` is now required (no default). Schema updated in `shared/ir_common/schemas.py`, `types/api.ts` TS interface, and `RagPanel.tsx` passes `max_tokens: 256`.
-- **RAG enhancement B — Configurable retriever**: `RagRequest.retriever` added (`"embedding"` / `"bm25"` / `"hybrid_parallel"`, default `"embedding"`). `rag_client.py:search_retrieval()` accepts a `representation` param. `rag_client.py` no longer hardcodes BM25. RagPanel adds a retriever dropdown selector.
-- **RAG enhancement C — Query expansion via refinement**: `rag_client.py` adds `REFINEMENT_URL` env var + `refine_query()` calling `POST /refine` on :8004. `service.py:answer()` calls refinement before retrieval, uses `expanded_query` for search. `RagResponse.refined_query` field returns the expanded query. Graceful degradation if :8004 unreachable. RagPanel shows expanded query when different from original.
-- **328 Python tests + 18 Vitest all pass** (1 test updated for `generate()` signature change). `tsc -b` clean. `vite build` succeeds (163 modules, 257.78 kB JS, 1.84 s).
-- All 7 services verified running — health checks pass on :8000–:8005 + :5173. End-to-end test: `"capitl of Frnce"` → refined to `"capital uppercase majuscule of France"` → 3 docs retrieved via embedding → 128-token answer.
-- Commits: `39e4be9` (UI enhancements), `<pending>` (A/B/C).
+- **RAG A — Configurable `max_tokens`**: `RagRequest.max_tokens` added (default 256, range 64–1024). `generator.py`'s `max_new_tokens` is now required (no default). Schema updated in `shared/ir_common/schemas.py`, `types/api.ts` TS interface, and `RagPanel.tsx` passes `max_tokens: 256`.
+- **RAG B — Configurable retriever**: `RagRequest.retriever` added (`"embedding"` / `"bm25"` / `"hybrid_parallel"`, default `"embedding"`). `rag_client.py:search_retrieval()` accepts a `representation` param. `rag_client.py` no longer hardcodes BM25. RagPanel adds a retriever dropdown selector.
+- **RAG C — Query expansion via refinement**: `rag_client.py` adds `REFINEMENT_URL` env var + `refine_query()` calling `POST /refine` on :8004. `service.py:answer()` calls refinement before retrieval, uses `expanded_query` for search. `RagResponse.refined_query` field returns the expanded query. Graceful degradation if :8004 unreachable. RagPanel shows expanded query when different from original.
+- **RAG E — SSE streaming**: `generator.py` adds `generate_stream()` with `llama_cpp stream=True`, yields tokens one-by-one. `service.py` adds `POST /rag/answer/stream` returning `text/event-stream` with stage events + token events + done event. Gateway adds `POST /api/rag/answer/stream` proxy (unbuffered `StreamingResponse`). `RagClient` adds `answer_stream()` using `_post_stream`. `client.ts` adds `ragAnswerStream()` using native `fetch` + `ReadableStream`. RagPanel adds "Stream" checkbox toggle; when enabled, tokens appear incrementally instead of waiting for the full response.
+- **328 Python tests + 18 Vitest all pass**. `tsc -b` clean. `vite build` (163 modules, 259.46 kB JS, 1.74 s).
+- Commits: `39e4be9` (UI), `1f70508` (A/B/C), `<pending>` (E streaming).

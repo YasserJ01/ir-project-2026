@@ -63,3 +63,35 @@ def generate(prompt: str, max_new_tokens: int) -> str:
         logger.warning("Model echoed instruction; falling back to 'I don't know'")
         return "I don't know based on the given documents."
     return raw
+
+
+def generate_stream(prompt: str, max_new_tokens: int):
+    """Yield ``{"token": str, "done": bool}`` dicts from the GGUF model.
+
+    Each call yields one token at a time. After the final token the
+    last dict has ``done=True`` and ``answer`` set. If the model
+    echoes the system instruction an ``override`` event is yielded
+    instead of the final token bundle.
+    """
+    if _llm is None:
+        _load()
+
+    stream = _llm(
+        prompt=prompt,
+        max_tokens=max_new_tokens,
+        temperature=0.0,
+        stream=True,
+        echo=False,
+    )
+    full_text = ""
+    for output in stream:
+        token = output["choices"][0]["text"]
+        full_text += token
+        yield {"token": token, "done": False}
+
+    text = full_text.strip()
+    if _is_instruction_echo(text):
+        logger.warning("Streaming: model echoed instruction; overriding")
+        yield {"override": True, "answer": "I don't know based on the given documents."}
+    else:
+        yield {"token": "", "done": True, "answer": text}
