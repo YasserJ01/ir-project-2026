@@ -73,6 +73,11 @@ evaluation/reports/plots/*
 reports/*.pdf
 !reports/.gitkeep
 
+# ─── Temporary files ──────────────────────────────────────
+tmp_*
+tmp*.txt
+tmp*.log
+
 # ─── OS / Windows extras ──────────────────────────────────
 $RECYCLE.BIN/
 System Volume Information/
