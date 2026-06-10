@@ -261,7 +261,10 @@ async def search(request: Request, body: GatewaySearchRequest) -> dict[str, Any]
         # All other representations go straight to :8003. Build a dict
         # the backend understands (its HybridSearchRequest has the same
         # fields, so a model_dump() round-trips cleanly).
-        result = await clients.retrieval.hybrid_search(dataset_id, body.model_dump())
+        payload = body.model_dump()
+        if payload.get("user_id") is None:
+            payload["user_id"] = "anonymous"
+        result = await clients.retrieval.hybrid_search(dataset_id, payload)
         return result
     except (BackendUnreachable, BackendClientError) as exc:
         raise _downstream_error_response(exc) from exc
