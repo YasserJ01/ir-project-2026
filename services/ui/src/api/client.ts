@@ -72,7 +72,7 @@ export function ragAnswer(req: RagRequest): Promise<RagResponse> {
 
 export interface RagStreamCallbacks {
   onToken: (token: string) => void;
-  onDone: (answer: string, sources: string[], latencyMs: number, refinedQuery: string | null) => void;
+  onDone: (answer: string, sources: string[], latencyMs: number, refinedQuery: string | null, citations?: Record<string, string>) => void;
   onError: (err: string) => void;
   onStage?: (stage: string, data: Record<string, unknown>) => void;
 }
@@ -121,6 +121,7 @@ export async function ragAnswerStream(
             payload.source_doc_ids ?? [],
             payload.latency_ms ?? 0,
             payload.refined_query ?? null,
+            payload.citations ?? undefined,
           );
         } else if (payload.override) {
           callbacks.onDone(
@@ -128,6 +129,7 @@ export async function ragAnswerStream(
             payload.source_doc_ids ?? [],
             payload.latency_ms ?? 0,
             payload.refined_query ?? null,
+            payload.citations ?? undefined,
           );
         } else if (payload.token !== undefined) {
           callbacks.onToken(payload.token);

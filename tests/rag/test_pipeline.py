@@ -42,7 +42,7 @@ def test_answer_returns_rag_response(
         {"id": "doc-2", "text": "France is a country in Europe."},
     ]
     mock_generate.return_value = (
-        "Based on the provided context, the capital of France is Paris. [doc_id=doc-1]"
+        "Based on the provided context, the capital of France is Paris. [1]"
     )
 
     r = client.post(
@@ -93,7 +93,7 @@ def test_is_instruction_echo_detects_instruction() -> None:
         '- If the answer is not in the context, say "I don\'t know."'
     )
     assert _is_instruction_echo(
-        'Cite sources as [doc_id].'
+        'Cite sources as [1], [2], etc.'
     )
     assert _is_instruction_echo(
         'Use ONLY the context below'
@@ -115,7 +115,7 @@ def test_generator_instruction_guard_catches_echo(mock_llm) -> None:
             "text": (
                 'Based on the given documents, the answer is: \n'
                 '- If the answer is not in the context, say "I don\'t know."\n'
-                '- Cite sources as [doc_id].'
+                '- Cite sources as [1], [2], etc.'
             ),
             "index": 0,
             "finish_reason": "stop",
@@ -140,7 +140,7 @@ def test_answer_partial_missing_docs(
         {"id": "doc-1", "text": "Some text."},
         {"id": "doc-404", "text": ""},  # missing doc returns empty
     ]
-    mock_generate.return_value = "Answer with [doc_id=doc-1]."
+    mock_generate.return_value = "Answer citing [1]."
 
     r = client.post(
         "/rag/answer",

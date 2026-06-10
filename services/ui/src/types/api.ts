@@ -126,6 +126,7 @@ export interface RagRequest {
   k?: number;
   max_tokens?: number;
   retriever?: "bm25" | "embedding" | "hybrid_parallel";
+  conversation_id?: string | null;
 }
 
 export interface RagResponse {
@@ -133,6 +134,8 @@ export interface RagResponse {
   source_doc_ids?: string[];
   latency_ms?: number;
   refined_query?: string | null;
+  /** Map of citation number -> doc_id, e.g. {"1": "doc-abc", "2": "doc-xyz"} */
+  citations?: Record<string, string>;
 }
 
 /** Response from `GET /api/docs/{dataset_id}/{doc_id}`. */

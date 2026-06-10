@@ -745,6 +745,15 @@ class RagRequest(BaseModel):
             "`hybrid_parallel` fuses both."
         ),
     )
+    conversation_id: str | None = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "Optional conversation id for multi-turn dialogue. "
+            "If provided and known, previous Q&A turns are injected "
+            "into the prompt for context-aware follow-ups."
+        ),
+    )
 
 
 class RagResponse(BaseModel):
@@ -761,6 +770,14 @@ class RagResponse(BaseModel):
     refined_query: str | None = Field(
         default=None,
         description="Spell-corrected + synonym-expanded query if refinement was applied.",
+    )
+    citations: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Mapping of citation number (e.g. ``\"1\"``) to the actual "
+            "``doc_id`` of the source document. Populated by parsing ``[N]`` "
+            "markers from the generated answer text."
+        ),
     )
 
 

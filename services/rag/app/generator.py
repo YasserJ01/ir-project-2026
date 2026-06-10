@@ -38,7 +38,7 @@ def _load() -> None:
 
 _INSTRUCTION_PHRASES = (
     'if the answer is not in the context',
-    'cite sources as [doc_id]',
+    'cite sources as [',
     'use only the context below',
 )
 

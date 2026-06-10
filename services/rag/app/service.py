@@ -11,8 +11,10 @@ from fastapi.responses import StreamingResponse
 
 from shared.ir_common.schemas import DATASET_IDS, RagRequest, RagResponse
 
+from .citations import extract_citations
 from .context import build_context
 from .generator import generate, generate_stream
+from .history import get_store
 from .rag_client import RagClientError, fetch_doc_text, refine_query, search_retrieval
 
 try:
@@ -26,8 +28,39 @@ logger = logging.getLogger(__name__)
 _SYSTEM_PROMPT = (
     "You are a precise assistant. Use ONLY the context below.\n"
     'If the answer is not in the context, say "I don\'t know based on the given documents."\n'
-    "Cite sources as [doc_id]."
+    "Cite sources as [1], [2], etc. matching the document numbers below."
 )
+
+_EOS = "</s>"
+
+
+def _build_prompt(query: str, context: str, history_str: str) -> str:
+    """Build a TinyLlama chat prompt from history + context + query."""
+    parts = [f"<|system|>\n{_SYSTEM_PROMPT}{_EOS}\n"]
+    if history_str:
+        parts.append(history_str)
+    if context:
+        parts.append(f"<|user|>\nContext:\n{context}\n\n")
+    parts.append(f"Question: {query}{_EOS}\n<|assistant|>\n")
+    return "".join(parts)
+
+
+def _doc_ids_and_docs(results: list[dict], dataset_id: str) -> tuple[list[str], list[dict[str, str]]]:
+    """Extract parallel ``doc_ids`` / ``docs`` lists from the retrieval results."""
+    doc_ids: list[str] = []
+    docs: list[dict[str, str]] = []
+    for hit in results:
+        doc_id = hit.get("doc_id", "")
+        if not doc_id:
+            continue
+        doc_ids.append(doc_id)
+        try:
+            doc = fetch_doc_text(dataset_id, doc_id)
+        except RagClientError:
+            doc = {"id": doc_id, "text": ""}
+        docs.append(doc)
+    return doc_ids, docs
+
 
 app = FastAPI(
     title="IR RAG Service",
@@ -77,35 +110,25 @@ def answer(req: RagRequest) -> RagResponse:
             source_doc_ids=[],
             latency_ms=(time.perf_counter() - t0) * 1000,
             refined_query=refined,
+            citations={},
         )
 
-    # 2. Fetch full text for each result
-    docs: list[dict[str, str]] = []
-    doc_ids: list[str] = []
-    for hit in results:
-        doc_id = hit.get("doc_id", "")
-        if not doc_id:
-            continue
-        doc_ids.append(doc_id)
-        try:
-            doc = fetch_doc_text(req.dataset_id, doc_id)
-        except RagClientError:
-            doc = {"id": doc_id, "text": ""}
-        docs.append(doc)
+    # 3. Fetch full text for each result
+    doc_ids, docs = _doc_ids_and_docs(results, req.dataset_id)
 
-    # 3. Build context window
+    # 4. Build context window
     context = build_context(docs)
 
-    # 4. Format prompt with the TinyLlama chat template (EOS after each role)
-    eos = "</s>"
-    prompt = (
-        f"<|system|>\n{_SYSTEM_PROMPT}{eos}\n"
-        f"<|user|>\nContext:\n{context}\n\n"
-        f"Question: {req.query}{eos}\n"
-        f"<|assistant|>\n"
-    )
+    # 5. Inject conversation history (if any)
+    history_str = ""
+    if req.conversation_id:
+        store = get_store()
+        history_str = store.format_history(req.conversation_id)
 
-    # 5. Generate answer
+    # 6. Format prompt with TinyLlama chat template
+    prompt = _build_prompt(req.query, context, history_str)
+
+    # 7. Generate answer
     try:
         answer_text = generate(prompt, max_new_tokens=req.max_tokens)
     except Exception as exc:
@@ -113,12 +136,23 @@ def answer(req: RagRequest) -> RagResponse:
 
     elapsed = (time.perf_counter() - t0) * 1000
 
+    # 8. Extract citations
+    answer_text = answer_text or "I don't know based on the given documents."
+    citations = extract_citations(answer_text, doc_ids)
+
+    # 9. Save conversation turn
+    if req.conversation_id:
+        store = get_store()
+        store.push(req.conversation_id, "user", req.query, doc_ids)
+        store.push(req.conversation_id, "assistant", answer_text, doc_ids)
+
     refined = expanded_query if expanded_query != req.query else None
     return RagResponse(
-        answer=answer_text or "I don't know based on the given documents.",
+        answer=answer_text,
         source_doc_ids=doc_ids,
         latency_ms=round(elapsed, 1),
         refined_query=refined,
+        citations=citations,
     )
 
 
@@ -143,52 +177,40 @@ async def answer_stream(req: RagRequest):
     docs: list[dict[str, str]] = []
 
     if results:
-        # 3. Fetch full text for each result
-        for hit in results:
-            doc_id = hit.get("doc_id", "")
-            if not doc_id:
-                continue
-            doc_ids.append(doc_id)
-            try:
-                doc = fetch_doc_text(req.dataset_id, doc_id)
-            except RagClientError:
-                doc = {"id": doc_id, "text": ""}
-            docs.append(doc)
-
-        # 4. Build context window
+        doc_ids, docs = _doc_ids_and_docs(results, req.dataset_id)
         context = build_context(docs)
-
-        # 5. Format prompt with TinyLlama chat template
-        eos = "</s>"
-        prompt = (
-            f"<|system|>\n{_SYSTEM_PROMPT}{eos}\n"
-            f"<|user|>\nContext:\n{context}\n\n"
-            f"Question: {req.query}{eos}\n"
-            f"<|assistant|>\n"
-        )
+        history_str = ""
+        if req.conversation_id:
+            history_str = get_store().format_history(req.conversation_id)
+        prompt = _build_prompt(req.query, context, history_str)
     else:
         prompt = ""
 
     refined = expanded_query if expanded_query != req.query else None
 
     async def event_stream():
-        # Stage event: retrieval summary
         yield f"data: {json.dumps({'stage': 'retrieval', 'source_doc_ids': doc_ids, 'refined_query': refined})}\n\n"
 
         if not prompt:
             elapsed = (time.perf_counter() - t0) * 1000
             fallback = "I don't know based on the given documents."
-            yield f"data: {json.dumps({'done': True, 'answer': fallback, 'source_doc_ids': [], 'latency_ms': round(elapsed, 1), 'refined_query': refined})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'answer': fallback, 'source_doc_ids': [], 'latency_ms': round(elapsed, 1), 'refined_query': refined, 'citations': {}})}\n\n"
             yield "data: [DONE]\n\n"
             return
 
-        # Token events
+        full_text = ""
         for chunk in generate_stream(prompt, max_new_tokens=req.max_tokens):
             if chunk.get("override"):
-                yield f"data: {json.dumps({'done': True, 'answer': chunk['answer'], 'source_doc_ids': doc_ids, 'latency_ms': 0, 'refined_query': refined})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'answer': chunk['answer'], 'source_doc_ids': doc_ids, 'latency_ms': 0, 'refined_query': refined, 'citations': {}})}\n\n"
             elif chunk.get("done"):
                 elapsed = (time.perf_counter() - t0) * 1000
-                yield f"data: {json.dumps({'done': True, 'answer': chunk['answer'], 'source_doc_ids': doc_ids, 'latency_ms': round(elapsed, 1), 'refined_query': refined})}\n\n"
+                answer_text = chunk["answer"]
+                citations = extract_citations(answer_text, doc_ids)
+                if req.conversation_id:
+                    store = get_store()
+                    store.push(req.conversation_id, "user", req.query, doc_ids)
+                    store.push(req.conversation_id, "assistant", answer_text, doc_ids)
+                yield f"data: {json.dumps({'done': True, 'answer': answer_text, 'source_doc_ids': doc_ids, 'latency_ms': round(elapsed, 1), 'refined_query': refined, 'citations': citations})}\n\n"
             else:
                 yield f"data: {json.dumps({'token': chunk['token']})}\n\n"
 

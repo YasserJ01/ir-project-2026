@@ -1,22 +1,17 @@
-/**
- * `RagPanel` — RAG answer panel (Phase 8).
- *
- * Behaviour:
- *   - The "Get an answer" button is enabled iff there's a non-empty
- *     query and a dataset.
- *   - Clicking it calls `ragAnswer(...)` and renders the answer +
- *     source doc_ids.
- *   - Errors are surfaced as a red banner.
- */
-
 import { useEffect, useRef, useState } from "react";
 import { ragAnswer, ragAnswerStream, errorMessage } from "../api/client";
 import type { DatasetId } from "../types/api";
+import CitationPopover from "./CitationPopover";
+import ConversationHistory from "./ConversationHistory";
+
+interface Turn {
+  role: "user" | "assistant";
+  text: string;
+}
 
 interface Props {
   query: string;
   dataset: DatasetId;
-  /** When false, the panel is collapsed and the button is hidden. */
   enabled: boolean;
 }
 
@@ -26,16 +21,50 @@ const RETRIEVERS = [
   { value: "bm25" as const, label: "BM25", hint: "Fast, lexical only" },
 ];
 
+const CITATION_RE = /\[(\d+)\]/g;
+
+function renderAnswerWithCitations(text: string, citations: Record<string, string>): (string | JSX.Element)[] {
+  const parts: (string | JSX.Element)[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  CITATION_RE.lastIndex = 0;
+  while ((match = CITATION_RE.exec(text)) !== null) {
+    const num = match[1];
+    const docId = citations[num];
+    if (match.index > last) {
+      parts.push(text.slice(last, match.index));
+    }
+    if (docId) {
+      parts.push(<CitationPopover key={match.index} num={num} docId={docId} />);
+    } else {
+      parts.push(<sup key={match.index} className="text-slate-400">[{num}]</sup>);
+    }
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) {
+    parts.push(text.slice(last));
+  }
+  return parts;
+}
+
+function generateId(): string {
+  return "rag-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+
 export default function RagPanel({ query, dataset, enabled }: Props) {
   const [open, setOpen] = useState(false);
   const [answer, setAnswer] = useState<string | null>(null);
   const [sources, setSources] = useState<string[]>([]);
+  const [citations, setCitations] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [retriever, setRetriever] = useState<"bm25" | "embedding" | "hybrid_parallel">("embedding");
   const [refinedQuery, setRefinedQuery] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(true);
   const [stage, setStage] = useState<string | null>(null);
+  const [conversationEnabled, setConversationEnabled] = useState(false);
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const conversationIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -52,15 +81,26 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
     setErr(null);
     setAnswer(null);
     setSources([]);
+    setCitations({});
     setRefinedQuery(null);
     setStage(null);
 
+    if (!conversationIdRef.current && conversationEnabled) {
+      conversationIdRef.current = generateId();
+    }
+
+    const convId = conversationEnabled ? conversationIdRef.current : undefined;
+
     if (!streaming) {
       try {
-        const r = await ragAnswer({ query, dataset_id: dataset, k: 5, max_tokens: 256, retriever });
+        const r = await ragAnswer({ query, dataset_id: dataset, k: 5, max_tokens: 256, retriever, conversation_id: convId });
         setAnswer(r.answer ?? "(no answer returned)");
         setSources(r.source_doc_ids ?? []);
+        setCitations(r.citations ?? {});
         setRefinedQuery(r.refined_query ?? null);
+        if (convId && r.answer) {
+          setTurns((prev) => [...prev, { role: "user", text: query }, { role: "assistant", text: r.answer! }]);
+        }
       } catch (e) {
         setErr(errorMessage(e));
       } finally {
@@ -73,7 +113,7 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
     abortRef.current = ctrl;
 
     await ragAnswerStream(
-      { query, dataset_id: dataset, k: 5, max_tokens: 256, retriever },
+      { query, dataset_id: dataset, k: 5, max_tokens: 256, retriever, conversation_id: convId },
       {
         onStage: (s, data) => {
           setStage(s);
@@ -83,12 +123,16 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
         onToken: (token) => {
           setAnswer((prev) => (prev ?? "") + token);
         },
-        onDone: (ans, srcs, _latency, refined) => {
+        onDone: (ans, srcs, _latency, refined, citations_) => {
           setAnswer(ans);
           setSources(srcs);
+          setCitations(citations_ ?? {});
           setRefinedQuery(refined);
           setLoading(false);
           setStage(null);
+          if (convId && ans) {
+            setTurns((prev) => [...prev, { role: "user", text: query }, { role: "assistant", text: ans }]);
+          }
         },
         onError: (msg) => {
           setErr(msg);
@@ -128,6 +172,15 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
             />
             Stream
           </label>
+          <label className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+            <input
+              type="checkbox"
+              checked={conversationEnabled}
+              onChange={(e) => setConversationEnabled(e.target.checked)}
+              className="h-3 w-3 rounded border-slate-300 text-indigo-600"
+            />
+            History
+          </label>
           <button
             type="button"
             disabled={!canAsk}
@@ -140,6 +193,9 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
       </div>
       {open && (
         <div className="mt-2 space-y-2 text-sm">
+          {conversationEnabled && turns.length > 0 && (
+            <ConversationHistory turns={turns} />
+          )}
           {refinedQuery && refinedQuery !== query && (
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Expanded from: <span className="italic">{query}</span> →{" "}
@@ -166,10 +222,24 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
           )}
           {answer && (
             <div>
-              <p className="text-slate-800 dark:text-slate-100">{answer}</p>
-              {sources.length > 0 && (
+              <p className="text-slate-800 dark:text-slate-100">
+                {renderAnswerWithCitations(answer, citations)}
+              </p>
+              {Object.keys(citations).length > 0 && (
+                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  <span className="font-semibold">Cited sources:</span>
+                  <ul className="ml-2 list-inside list-disc">
+                    {Object.entries(citations).map(([num, docId]) => (
+                      <li key={num}>
+                        [{num}] {docId}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {Object.keys(citations).length === 0 && sources.length > 0 && (
                 <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  Sources: {sources.map((s) => s).join(", ")}
+                  Sources: {sources.join(", ")}
                 </p>
               )}
             </div>
