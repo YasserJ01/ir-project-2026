@@ -51,6 +51,7 @@ pnpm-debug.log*
 # ─── Data (large, regenerable) ────────────────────────────
 data/raw/*
 data/processed/*
+data/dbs/*.db
 data/indexes/*
 data/faiss/*
 data/models/*

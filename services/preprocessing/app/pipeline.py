@@ -25,11 +25,11 @@ try:
 except Exception:
     pass
 
-import ir_datasets
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from shared.ir_common.doc_db import get_doc as _get_doc
 from shared.ir_common.preprocess import (
     PIPELINE_STEPS,
     preprocess,
@@ -100,57 +100,32 @@ def preprocess_endpoint(req: PreprocessRequest) -> PreprocessResponse:
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Document-by-ID retrieval (Phase 7.5)
+# Document-by-ID retrieval (SQLite, replaces ir_datasets)
 # ─────────────────────────────────────────────────────────────────────────
 
-_DS_ID_TO_BEIR = {
-    "touche2020": "beir/webis-touche2020",
-    "nq": "beir/nq",
-}
-_doc_stores: dict[str, ir_datasets.DocStore] = {}
-
-
-def _get_doc_store(dataset_id: str) -> ir_datasets.DocStore:
-    """Lazy-load and cache the ``docs_store`` for a dataset.
-
-    The ``ir_datasets`` cache (``~/.ir_datasets/``) is the single
-    source of truth for document text. The raw :file:`docs.jsonl`
-    in ``data/processed/`` exists too, but the pklz4 full-store
-    gives O(1) random access by doc_id with no RAM overhead.
-    """
-    if dataset_id not in _doc_stores:
-        beir_id = _DS_ID_TO_BEIR.get(dataset_id)
-        if beir_id is None:
-            raise HTTPException(400, f"Unknown dataset_id {dataset_id!r}")
-        _doc_stores[dataset_id] = ir_datasets.load(beir_id).docs_store()
-    return _doc_stores[dataset_id]
+_VALID_DATASETS = ("touche2020", "nq")
 
 
 @app.get("/docs/{dataset_id}/{doc_id}")
 def get_doc(dataset_id: str, doc_id: str) -> dict[str, str]:
-    """Return the full text of a single document by its ID.
+    """Return the original (uncleaned) document text from the SQLite DB.
 
-    ``dataset_id`` must be one of the canonical dataset IDs
-    (``touche2020`` / ``nq``). ``doc_id`` is the opaque string
-    returned by the search endpoints (e.g.
-    ``bb913bfc-2019-04-18T17:06:16Z-00009-000``).
+    ``dataset_id`` must be one of ``touche2020`` / ``nq``. The database
+    is built by ``scripts/build_doc_db.py`` from the processed
+    ``docs.jsonl`` files.
 
     Responses
     ---------
-    * ``200`` — ``{"id": str, "text": str}``
-    * ``400`` — unknown ``dataset_id``
-    * ``404`` — ``doc_id`` not found in the dataset
+    * ``200`` — ``{"id": str, "text": str}`` — original document text.
+    * ``400`` — unknown ``dataset_id``.
+    * ``404`` — ``doc_id`` not found.
     """
-    if dataset_id not in _DS_ID_TO_BEIR:
-        raise HTTPException(400, f"Unknown dataset_id {dataset_id!r}")
-    try:
-        store = _get_doc_store(dataset_id)
-        doc = store.get(doc_id)
-    except Exception as exc:
-        raise HTTPException(404, f"doc_id {doc_id!r} not found: {exc}") from exc
-    if doc is None:
+    if dataset_id not in _VALID_DATASETS:
+        raise HTTPException(400, f"Unknown dataset_id {dataset_id!r}; must be one of {_VALID_DATASETS}")
+    text = _get_doc(dataset_id, doc_id)
+    if text is None:
         raise HTTPException(404, f"doc_id {doc_id!r} not found")
-    return {"id": doc.doc_id, "text": doc.text}
+    return {"id": doc_id, "text": text}
 
 
 # CLI runner: ``python -m services.preprocessing.app.pipeline`` -> uvicorn on :8001
