@@ -34,7 +34,7 @@
 
 This report documents the design, implementation, and evaluation of a production-grade, service-oriented Information Retrieval (IR) system built as a solo project for the Information Retrieval Systems 2026 course. The system indexes two large-scale datasets (totaling 882,544 documents) and provides five distinct search representations: TF-IDF, BM25, Dense Embeddings, Hybrid Fusion, and Multi-Encoder Fusion. It also implements two additional features — a Vector Store (FAISS) and Retrieval-Augmented Generation (RAG) — as required by the course specification.
 
-The system follows a Service-Oriented Architecture (SOA) consisting of six independent microservices: a Preprocessing service (port 8001), Indexing service (port 8002), Retrieval service (port 8003), Refinement service (port 8004), RAG service (port 8005), and a Gateway service (port 8000) that acts as the single public entry point. A React-based Web UI communicates with the gateway via REST APIs. All services can be deployed together via Docker Compose.
+The system follows a Service-Oriented Architecture (SOA) consisting of seven independent microservices: a Preprocessing service (port 8001), Indexing service (port 8002), Retrieval service (port 8003), Refinement service (port 8004), RAG service (port 8005), Clustering service (port 8006), and a Gateway service (port 8000) that acts as the single public entry point. A React-based Web UI communicates with the gateway via REST APIs. All services can be deployed together via Docker Compose.
 
 The evaluation, conducted on 249 test queries across 36 distinct configuration combinations (5 representations × 2 conditions × 3 fusion methods × 2 datasets), yielded the following key results:
 
@@ -140,7 +140,7 @@ This approach mitigates the hallucination problem of pure LLMs by constraining t
 
 ### 3.1 Architectural Overview
 
-The system follows the **Service-Oriented Architecture (SOA)** pattern, decomposing the IR system into six independent microservices, each responsible for a specific function. Services communicate via synchronous REST API calls over HTTP, using JSON as the serialization format. A dedicated API Gateway serves as the single public entry point, routing incoming requests to the appropriate backend service.
+The system follows the **Service-Oriented Architecture (SOA)** pattern, decomposing the IR system into seven independent microservices, each responsible for a specific function. Services communicate via synchronous REST API calls over HTTP, using JSON as the serialization format. A dedicated API Gateway serves as the single public entry point, routing incoming requests to the appropriate backend service.
 
 ```
                     ┌─────────────────────────────────────┐
@@ -149,28 +149,29 @@ The system follows the **Service-Oriented Architecture (SOA)** pattern, decompos
                     └──────────────┬──────────────────────┘
                                    │ /api/*  (proxied)
                                    ▼
-                    ┌─────────────────────────────────────┐
-                    │      FastAPI Gateway (:8000)         │
-                    │   Router + CORS + Request-ID + Logs  │
-                    └──┬──────┬──────┬──────┬──────┬───────┘
-                       │      │      │      │      │
-                       ▼      ▼      ▼      ▼      ▼
-              ┌──────┐ ┌────┐ ┌────┐ ┌────┐ ┌────────┐
-              │ Pre- │ │ In-│ │ Re-│ │ Re-│ │  RAG   │
-              │ proc.│ │dex │ │trie│ │fine│ │ :8005  │
-              │:8001 │ │:8002│ │:8003│ │:8004│ │        │
-              └──┬───┘ └────┘ └──┬─┘ └────┘ └────────┘
+                    ┌─────────────────────────────────────────┐
+                    │      FastAPI Gateway (:8000)             │
+                    │   Router + CORS + Request-ID + Logs     │
+                    └──┬──────┬──────┬──────┬──────┬──────┬────┘
+                       │      │      │      │      │      │
+                       ▼      ▼      ▼      ▼      ▼      ▼
+              ┌──────┐ ┌────┐ ┌────┐ ┌────┐ ┌────────┐ ┌──────┐
+              │ Pre- │ │ In-│ │ Re-│ │ Re-│ │  RAG   │ │Clust.│
+              │ proc.│ │dex │ │trie│ │fine│ │ :8005  │ │:8006 │
+              │:8001 │ │:8002│ │:8003│ │:8004│ │        │ │      │
+              └──┬───┘ └────┘ └──┬─┘ └────┘ └────────┘ └──────┘
                  │               │
                  └───────┬───────┘
                          ▼
-              ┌────────────────────────┐
-              │  Shared Data Volume    │
-              │  (./data/)             │
-              │  - processed/          │
-              │  - indexes/            │
-              │  - models/             │
-              │  - user_logs/          │
-              └────────────────────────┘
+              ┌────────────────────────────┐
+              │  Shared Data Volume        │
+              │  (./data/)                 │
+              │  - processed/              │
+              │  - indexes/                │
+              │  - clusters/               │
+              │  - models/                 │
+              │  - user_logs/              │
+              └────────────────────────────┘
 ```
 
 ### 3.2 Service Descriptions
@@ -232,11 +233,22 @@ Enhances user queries before retrieval. Provides:
 
 Sub-modules: spell correction (SymSpell), synonym expansion (WordNet), personalization (click-log analysis), grammar correction (language-tool-python, off by default).
 
-#### 3.2.6 RAG Service (Port 8005)
+#### 3.2.6 Clustering Service (Port 8006)
+
+Provides cluster-aware search by boosting results from the nearest document cluster. Uses **Mini-Batch K-Means** (k=20, built offline from L6 embeddings). Provides:
+
+- `POST /cluster/{dataset_id}/search`: Accepts query + representation + boost; returns results with boosted cluster scores.
+- `GET /cluster/{dataset_id}/stats`: Returns cluster metadata (counts per cluster, inertia).
+- `GET /health`: Liveness probe.
+
+Query encoding is delegated to the retrieval service to avoid a second GPU model load. The cluster boost (default 1.5×) is applied as a score multiplier for documents in the predicted nearest cluster.
+
+#### 3.2.7 RAG Service (Port 8005)
 
 Generates grounded answers using retrieval-augmented generation. Provides:
 
 - `POST /rag/answer`: Accepts query + dataset_id + k; returns answer + source document IDs + latency.
+- `POST /rag/answer/stream`: Server-Sent Events streaming variant — tokens appear incrementally.
 
 Pipeline: retrieve top-k docs → build context → generate answer via TinyLlama-1.1B (GGUF quantized via llama.cpp with Vulkan/CUDA GPU acceleration).
 
@@ -253,12 +265,12 @@ All inter-service communication uses **synchronous REST over HTTP/1.1** with JSO
 
 The entire stack is containerized via Docker Compose:
 
-- **`docker-compose.yml`**: Defines all 6 backend services + UI service on a shared `irnet` bridge network. Backend services use the shared `services/backend.Dockerfile` with `SERVICE_NAME` build argument. The UI service uses a multi-stage Dockerfile (Node build → nginx serve).
+- **`docker-compose.yml`**: Defines all 7 backend services + UI service on a shared `irnet` bridge network. Backend services use the shared `services/backend.Dockerfile` with `SERVICE_NAME` build argument. The UI service uses a multi-stage Dockerfile (Node build → nginx serve).
 - **`docker-compose.gpu.yml`**: GPU overlay that overrides the `retrieval` and `rag` services with CUDA 12.3 base images, NVIDIA runtime, and GPU device reservations.
 
 Key Docker decisions:
 - **Shared Dockerfile** with `ARG SERVICE_NAME`, `ARG BASE_IMAGE`, and `ARG TORCH_VARIANT` reduces maintenance overhead of 6 separate Dockerfiles.
-- **Healthchecks** on all backend services ensure the gateway only starts after its dependencies are healthy.
+- **Healthchecks** on all backend services ensure the gateway only starts after its dependencies are healthy. (Note: clustering service runs outside Docker and is not part of the Compose health check.)
 - **Volume mount** (`./data:/app/data`) persists indexes, embeddings, user logs, and model downloads across container restarts.
 - **Non-root user** (`appuser`) in containers for security best practices.
 - **Serial build** (one service at a time) on low-bandwidth connections to avoid pip timeouts from competing downloads.
@@ -697,7 +709,7 @@ Deterministic tie-breaking is ensured by sorting by `(-score, doc_id)` ascending
 
 ---
 
-## 10. Additional Features: Vector Store & RAG
+## 10. Additional Features: Vector Store, Clustering & RAG
 
 ### 10.1 Vector Store (FAISS)
 
@@ -726,17 +738,48 @@ The IVFFlat index uses `nlist=4096` clusters (built at index time) and `nprobe=1
 | `IndexFlatIP` | 48 µs | Baseline (100%) | 560 MB |
 | `IndexIVFFlat` (nprobe=16) | 11 µs | 96.3% | 565 MB |
 
-### 10.2 Retrieval-Augmented Generation (RAG)
+### 10.2 Mini-Batch K-Means Clustering
 
-**Feature #2**: Natural language answer generation grounded in retrieved documents.
+**Feature #2**: Corpus-level document clustering for boosted contextual retrieval.
 
-#### 10.2.1 Pipeline
+**Implementation**: `services/clustering/app/clusterer.py` + `services/clustering/app/service.py`
+
+The clustering service provides a **cluster-aware search** where results from the nearest cluster (to the query embedding) receive a score multiplier:
 
 ```
+Query → encode (via retrieval service :8003 /embed)
+      → predict nearest cluster (Mini-Batch K-Means, k=20)
+      → downstream search (BM25 / Embedding / Hybrid)
+      → boost scores of docs in nearest cluster (default 1.5×)
+      → rerank
+```
+
+**Why Mini-Batch K-Means**:
+- **Scalability**: Standard K-Means requires all `N × k` distance computations each iteration. Mini-Batch processes `batch_size=10,000` documents per iteration, fitting both datasets in ~45s (vs ~10 min for full K-Means).
+- **Deterministic**: Using a fixed random seed, identical clusters across runs.
+- **Vocabulary-free**: Operates on L6 embeddings (384-dim), not sparse term vectors — avoids TF-IDF/BM25 vocabulary dependencies.
+
+**Elbow method**: k=5–30 evaluated via distorted elbow heuristic; k=20 balances granularity vs generalization. Each cluster contains ~19,000 documents on average (touche2020).
+
+**Integration**:
+- Each dataset's clusters are built independently from its `embeddings.npy`.
+- Query encoding is delegated to the retrieval service's `/retrieval/embed` endpoint, avoiding a second `sentence-transformers` GPU load.
+- The cluster boost applies to all five search representations (BM25, TF-IDF, embedding, hybrid parallel/serial).
+- The gateway exposes a dedicated `POST /api/cluster/{ds}/search` endpoint; the UI renders a toggle + boost slider + bar chart of cluster sizes.
+
+**Performance impact**: Cluster-aware search adds ~200–800 ms overhead per query (embed + predict + boost), negligible compared to the ~5–55 s RAG pipeline.
+
+### 10.3 Retrieval-Augmented Generation (RAG)
+
+**Feature #3**: Natural language answer generation grounded in retrieved documents.
+#### 10.3.1 Pipeline
+
+```
+
 User Query
     │
     ▼
-Retrieval: BM25 search on :8002 (top-k=5 docs)
+Retrieval: BM25 / Embedding / Hybrid search (top-k=5 docs)
     │
     ▼
 Document fetch: GET /preprocess/docs/{id} on :8001
@@ -757,7 +800,7 @@ Post-processing: Strip instruction echo, extract [doc_id] citations
 Response: {answer, source_doc_ids, latency_ms}
 ```
 
-#### 10.2.2 LLM Model: TinyLlama-1.1B
+#### 10.3.2 LLM Model: TinyLlama-1.1B
 
 **Why TinyLlama**: 
 - **Small footprint**: 1.1 billion parameters, fits comfortably in 4 GB VRAM.
@@ -773,7 +816,7 @@ Response: {answer, source_doc_ids, latency_ms}
 
 The switch from `transformers` FP16 to `llama-cpp-python` with GGUF Q4_K_M quantization provided a **10× speedup** while reducing model size by 70% and VRAM usage by 55%.
 
-#### 10.2.3 Prompt Template
+#### 10.3.3 Prompt Template
 
 The generation prompt follows a strict instruction-following format:
 
@@ -799,7 +842,7 @@ The capital of France is Paris [abc123].
 - **Greedy decoding** (`temperature=0.0`) ensures deterministic outputs for evaluation reproducibility.
 - **Instruction-echo guard**: Detects and removes model outputs that simply repeat the system prompt instead of answering.
 
-#### 10.2.4 Performance
+#### 10.3.4 Performance
 
 | Metric | Cold Start | Warm (subsequent) |
 |--------|-----------|-------------------|
@@ -809,7 +852,7 @@ The capital of France is Paris [abc123].
 | Generation (128 tokens) | ~5-6s | ~5-6s |
 | **Total** | **~19-24s** | **~5-15s** |
 
-#### 10.2.5 Quality Assessment
+#### 10.3.5 Quality Assessment
 
 A manual evaluation of the RAG system on 10 representative queries from both datasets showed:
 - **Factual accuracy**: 8/10 answers were factually correct and grounded in the retrieved documents.

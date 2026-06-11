@@ -1,5 +1,8 @@
 # Progress Log
 
+## Clustering — Mini-Batch K-Means (Phase 8b) ✅
+All clustering code is committed at `d9bdf9a`. See "Session 2026-06-11 — Mini-Batch K-Means Clustering" below.
+
 ## Phase 0 — Foundation, Setup & Planning ✅
 - Installed Python 3.12.8 (per-user).
 - Created monorepo skeleton (`services/`, `shared/`, `data/`, `docs/`, `evaluation/`, `reports/`, `scripts/`).
@@ -259,3 +262,22 @@
 - **Verified**: both datasets return original uncleaned text from SQLite (URLs, lists, punctuation preserved). See `test_docs_sqlite` session.
 - **Docs updated**: `README.md` (architecture diagram + layout + quick start), `docs/architecture.md` (`dbs/` under data layout), `docs/progress.md` (this entry).
 - Commit: `1f04f65` pushed to `YasserJ01/ir-project-2026` on `main`.
+
+## Session 2026-06-11 — Mini-Batch K-Means Clustering (Phase 8b) ✅
+- **New clustering service** on `:8006` (FastAPI, independent service for modular testing).
+- **`services/clustering/app/clusterer.py`** — `CorpusClusterer` wrapping `MiniBatchKMeans` (k=20, batch=10000, n_init=3). Methods: `fit()`, `predict()`, `cluster_sizes()`. Persistence via `.npy` + `.json`.
+- **`services/clustering/app/service.py`** — 3 endpoints:
+  - `GET /cluster/{ds}/stats` — cluster metadata (n_clusters, per-cluster counts, inertia).
+  - `POST /cluster/{ds}/search` — wraps downstream search (BM25/TF-IDF → :8002 via retrieval hybrid; embedding/hybrid → :8003 directly), applies cluster boost (1.5× score multiplier for nearest-cluster docs), reranks.
+  - `GET /health` — liveness probe.
+- **`scripts/build_clusters.py`** — reads `embeddings.npy` (L6, 384-dim), runs Mini-Batch K-Means elbow sweep k=5–30 (optimal k=20), fits final model, writes artifacts to `data/indexes/{ds}/clusters/`. Both datasets built: touche2020 (382,544 docs) + nq (500,000 docs), ~45s each.
+- **Encoding via retrieval service**: embedding calls go to `POST /retrieval/embed` (`:8003`) instead of loading a local `sentence-transformers` model — avoids GPU OOM conflict between clustering and retrieval services on GTX 1650 (4 GB).
+- **Gateway wired**: `POST /api/cluster/{ds}/search` → `:8006`. `ClusteringClient` added to `GatewayClients`. Gateway passes `ClusterSearchRequest` body directly.
+- **UI changes**:
+  - `ClusteringToggle.tsx` — checkbox + boost slider (1.0–5.0, default 1.5).
+  - `ClusterBarChart.tsx` — vertical bar chart of per-cluster document counts, nearest cluster highlighted.
+  - `useUiStore.ts` — `enableClustering`, `clusterBoost` with setters.
+  - `HomePage.tsx` — conditionally calls `clusterSearch()` when clustering enabled.
+- **Smoke-tested**: both embedding (`nearest=19, hits=3, 760ms`) and BM25 (`nearest=19, hits=3, 209ms`) paths validated via `scripts/dev/cluster_smoke.py`.
+- **341 Python tests + 18 Vitest all pass**. `tsc -b` clean. `vite build` (166 modules, 266.58 kB JS, 2.02 s).
+- Commit: `d9bdf9a` pushed to `YasserJ01/ir-project-2026` on `main`.

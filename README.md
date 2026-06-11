@@ -2,7 +2,7 @@
 
 > A production-grade, service-oriented Information Retrieval (IR) search engine.
 > Two corpora (≥ 200K docs each), five search representations (TF-IDF, BM25, Embedding, Hybrid, Multi-encoder) plus a 2-encoder fusion (L6 + L12),
-> query refinement, RAG (TinyLlama-1.1B GGUF + Vulkan), and FAISS Vector Store — all behind a clean React UI.
+> query refinement, RAG (TinyLlama-1.1B GGUF + Vulkan), Mini-Batch K-Means clustering, and FAISS Vector Store — all behind a clean React UI.
 
 ## Status
 
@@ -129,21 +129,25 @@ graph TB
     GW --> RT["Retrieval (:8003)"]
     GW --> RF["Refinement (:8004)"]
     GW --> RG["RAG (:8005)"]
+    GW --> CL["Clustering (:8006)"]
     PP -->|"tokens"| IX
     PP -->|"docs/{id}"| RG
     PP -->|"docs/{id}"| DB[(SQLite<br/>data/dbs/)]
     IX -->|"BM25/TF-IDF"| RT
-    RT -->|"hybrid/multi-encoder"| RG
+    RT -->|"hybrid/multi-encoder / embed"| RG
+    RT -->|"embed query"| CL
     RF -->|"log/click"| UL[("User Logs<br/>data/user_logs/")]
     subgraph DATA ["Shared Volume (./data/)"]
         P[(processed/)]
         I[(indexes/)]
         M[(models/)]
         DBS[(dbs/)]
+        CI[(clusters/)]
     end
     IX --> P
     IX --> I
     RT --> M
+    CL --> CI
     RG --> M
 ```
 
@@ -195,6 +199,7 @@ ir-project-2026/
 │   ├── retrieval/
 │   ├── refinement/
 │   ├── rag/                   # (Phase 8)
+│   ├── clustering/            # (Phase 8b: Mini-Batch K-Means)
 │   └── ui/                    # React + Vite + TS
 └── shared/
     └── ir_common/             # shared config, schemas, http client

@@ -1,6 +1,6 @@
 # Architecture
 
-> Updated through **Phase 8** + SQLite doc store (2026-06-11).
+> Updated through **Phase 8b** (clustering — 2026-06-11).
 
 ## High-level diagram
 
@@ -12,8 +12,11 @@ flowchart TD
     GW --> IDX[Indexing<br/>:8002]
     GW --> RET[Retrieval<br/>:8003]
     GW --> RAG[RAG<br/>:8005]
+    GW --> CLU[Clustering<br/>:8006]
+    RET -.->|embed query| CLU
     IDX -.reads.-> DATA[(./data/indexes)]
     RET -.reads.-> DATA
+    CLU -.reads.-> CLD[(./data/indexes/{ds}/clusters)]
 ```
 
 ## Services (from SOLO_DEVELOPER_GUIDE §6.1)
@@ -23,14 +26,14 @@ flowchart TD
 | gateway | 8000 | 8000 | Public entry, routing, CORS, X-Request-ID | ✅ Phase 6 |
 | preprocessing | 8001 | 8000 (internal) | Text preprocessing (Phase 1 pipeline) | ✅ Phase 1 |
 | indexing | 8002 | 8000 (internal) | Inverted index, TF-IDF, BM25 (lexical) | ✅ Phase 2 |
-| retrieval | 8003 | 8000 (internal) | Embeddings, FAISS (semantic) | ✅ Phase 3 |
-| retrieval (hybrid) | 8003 | 8000 (internal) | 5-rep hybrid + multi-encoder | ✅ Phase 5 |
+| retrieval | 8003 | 8000 (internal) | Embeddings, FAISS (semantic) + 5-rep hybrid + multi-encoder | ✅ Phase 3 + 5 |
 | refinement | 8004 | 8000 (internal) | Query refinement (spell, synonyms, grammar, personalize) | ✅ Phase 4 |
 | rag | 8005 | 8000 (internal) | RAG answer generation (TinyLlama-1.1B, auto-detect GPU) | ✅ Phase 8 |
+| clustering | 8006 | 8000 (internal) | Mini-Batch K-Means cluster boost search | ✅ Phase 8b |
 | ui | 5173 / 3000 | 80 (nginx) | React frontend (Vite dev / nginx prod) | ✅ Phase 0 |
 
 **In docker-compose**: only `gateway:8000` and `ui:3000` publish host
-ports. The 4 backend services bind to internal port 8000 (same
+ports. Backend services bind to internal port 8000 (same
 container port, different hostnames) and are reachable only via
 service-name DNS (`http://preprocessing:8000`, etc.).
 
@@ -85,6 +88,11 @@ data/
 │   │   └── embeddings_l12.npy      # Phase 5: float32 (N, 384) (L12) — 560 MB
 │   └── nq/  (same, ~732 MB L6 + ~732 MB L12 = ~1.47 GB per encoder × 2 encoders = 2.94 GB at 500K)
 │
+├── indexes/{ds}/clusters/          # Phase 8b clustering (gitignored)
+│   ├── centroids.npy                # Mini-Batch K-Means centroids (k=20)
+│   ├── labels.npy                   # cluster label per doc
+│   ├── doc_id_to_cluster.json       # doc_id → cluster_id
+│   └── build_meta.json              # build metadata
 ├── models/                         # sentence-transformers cache (gitignored)
 │   ├── sentence-transformers__all-MiniLM-L6-v2/   # Phase 3, 90 MB
 │   └── sentence-transformers__all-MiniLM-L12-v2/  # Phase 5, 120 MB
@@ -252,13 +260,15 @@ phase adds:
 | Method | Path | Body | → Downstream | Status |
 |--------|------|------|--------------|--------|
 | GET | `/` | — | (landing page) | 200 |
-| GET | `/health` | — | 4 parallel probes (0.5s each) | 200 |
+| GET | `/health` | — | 5 parallel probes (0.5s each) | 200 |
 | GET | `/api/datasets` | — | — | 200 |
 | POST | `/api/search` | `GatewaySearchRequest` | :8001→:8002 (tfidf/bm25) OR :8003 (emb/hybrid) | 200/400/422/502/503 |
 | POST | `/api/multi-encoder/{ds}/search` | `MultiEncoderSearchRequest` | :8003 | 200/400/422/502/503 |
 | POST | `/api/refine` | `RefineRequest` | :8004 | 200/422/502/503 |
-| POST | `/api/log/click` | `LogClickRequest` | :8004 `/log/click` (new) | 204/422/502/503 |
+| POST | `/api/log/click` | `LogClickRequest` | :8004 `/log/click` | 204/422/502/503 |
 | POST | `/api/rag/answer` | `RagRequest` | :8005 `/rag/answer` | 200/422/502/503 |
+| POST | `/api/rag/answer/stream` | `RagRequest` | :8005 `/rag/answer/stream` (SSE) | 200/422/502/503 |
+| POST | `/api/cluster/{ds}/search` | `ClusterSearchRequest` | :8006 `/cluster/{ds}/search` | 200/400/422/502/503 |
 | GET | `/api/docs/{ds}/{id}` | — | :8001 `/docs/{ds}/{id}` | 200/400/502/503 |
 
 ### `/api/search` routing
@@ -326,18 +336,17 @@ Aggregated by personalization.py:183-204
 * **CORS** tightened to 4 local-UI origins on every service. Env-driven
   for the gateway (`GATEWAY_CORS_ORIGINS`).
 
-## Live Docker stack status (2026-06-07)
+## Live Docker stack status (2026-06-11)
 
 The Docker framework (`docker-compose.yml` + `docker-compose.gpu.yml` +
 `services/backend.Dockerfile` + `services/ui/Dockerfile` +
 `services/ui/nginx.conf`) is **fully implemented and committed** (Phase
 6 commits `ee6eb4e` + `a9e956d`); `docker compose config` validates
 without warnings. **Live validation of the running stack is deferred**:
-of the 6 services, only `gateway` and `ui` were built (then lost in the
-Docker Desktop daemon crash documented in PHASE_6.md §15); the 4
-backend service images are pending a future build session with
-adequate bandwidth. The user's C: drive had 9.51 GB free at the time of
-the crash, which contributed to the BuildKit deadlock; this was
-mitigated by moving Docker storage to G: drive (77.7 GB free) so future
-builds have ample headroom. See [PHASE_6.md §15](PHASE_6.md#15-live-build-session--incident-report-2026-06-06) for the full incident report.
+of the 7 backend services, only `gateway` and `ui` were built (then lost
+in the Docker Desktop daemon crash documented in PHASE_6.md §15); the
+5 backend service images are pending a future build session with
+adequate bandwidth. The clustering service on :8006 is independent
+(no Dockerfile yet, runs natively via uvicorn). See [PHASE_6.md §15](PHASE_6.md#15-live-build-session--incident-report-2026-06-06)
+for the full incident report.
 
