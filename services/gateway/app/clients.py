@@ -287,7 +287,7 @@ class GatewayClients:
             await c.aclose()
 
     async def reachable(self) -> dict[str, bool]:
-        """Run all 4 reachability probes in parallel."""
+        """Run all reachability probes in parallel."""
         import asyncio
 
         names = [c.service_name for c in self._all]

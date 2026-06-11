@@ -64,8 +64,6 @@ services:
         condition: service_healthy
       refinement:
         condition: service_healthy
-      clustering:
-        condition: service_healthy
     networks: [irnet]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]

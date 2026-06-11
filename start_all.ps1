@@ -1,8 +1,13 @@
-# start_all.ps1 - Launch all 7 IR project services
+# start_all.ps1 - Launch IR project services
 # Run this from the repo root:  .\start_all.ps1
 # Each service opens its own PowerShell window with visible logs.
 # Gateway: http://localhost:8000/docs
 # UI:      http://localhost:5173
+#
+# Clustering is optional (off by default). Enable with:
+#   .\start_all.ps1 -Clustering
+
+param([switch]$Clustering)
 
 $root = "F:\IR project"
 $venvActivate = "$root\.venv\Scripts\Activate.ps1"
@@ -14,9 +19,12 @@ $backendServices = @(
     @{name="retrieval";      port=8003; mod="services.retrieval.app.service:app"}
     @{name="refinement";     port=8004; mod="services.refinement.app.service:app"}
     @{name="rag";            port=8005; mod="services.rag.app.service:app"}
-    @{name="clustering";     port=8006; mod="services.clustering.app.service:app"}
     @{name="gateway";        port=8000; mod="services.gateway.app.main:app"}
 )
+
+if ($Clustering) {
+    $backendServices += @{name="clustering"; port=8006; mod="services.clustering.app.service:app"}
+}
 
 Write-Host "=== IR Project - Starting All Services ===" -ForegroundColor Cyan
 Write-Host ""
@@ -41,3 +49,6 @@ Write-Host ""
 Write-Host "=== All services launched ===" -ForegroundColor Green
 Write-Host "  Gateway: http://localhost:8000/docs"
 Write-Host "  UI:      http://localhost:5173"
+if (-not $Clustering) {
+    Write-Host "  Clustering: OFF (add -Clustering to enable)" -ForegroundColor DarkYellow
+}

@@ -51,6 +51,10 @@ from services.gateway.app.schemas import (  # noqa: E402
     RefineRequest,
 )
 
+# Services that must be reachable for the gateway to report "ok".
+# Clustering is optional — not required for health.
+_REQUIRED_SERVICES = {"preprocessing", "indexing", "retrieval", "refinement", "rag"}
+
 __all__ = ["app", "run"]
 
 logger = logging.getLogger(__name__)
@@ -193,7 +197,9 @@ async def health(request: Request) -> GatewayHealthResponse:
     """
     clients = _clients(request)
     flags = await clients.reachable()
-    overall = "ok" if all(flags.values()) else "degraded"
+    required = {k: v for k, v in flags.items()
+                if k in _REQUIRED_SERVICES}
+    overall = "ok" if all(required.values()) else "degraded"
     return GatewayHealthResponse(status=overall, services=flags)
 
 

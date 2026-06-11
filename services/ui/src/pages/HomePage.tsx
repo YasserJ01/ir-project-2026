@@ -115,7 +115,11 @@ export default function HomePage() {
         cluster_boost: clusterBoost,
       })
         .then((r) => setClusterData(r))
-        .catch((e) => setClusterError(errorMessage(e)))
+        .catch((e) => {
+          setClusterError(errorMessage(e));
+          // Fall back to normal search when clustering is unavailable
+          void refetch();
+        })
         .finally(() => setClusterLoading(false));
       return;
     }
@@ -230,11 +234,11 @@ export default function HomePage() {
                 </p>
               </div>
             )}
-            {enableClustering ? (
+            {enableClustering && !clusterError ? (
               <ResultsList
                 hits={clusterData?.results ?? []}
                 loading={clusterLoading}
-                error={clusterError}
+                error={null}
                 query={submitted}
                 datasetId={dataset}
                 highlightTerms={highlightTerms}
@@ -243,7 +247,7 @@ export default function HomePage() {
               <ResultsList
                 hits={data?.results ?? []}
                 loading={isFetching}
-                error={error ? errorMessage(error) : null}
+                error={clusterError || (error ? errorMessage(error) : null)}
                 query={submitted}
                 datasetId={dataset}
                 highlightTerms={highlightTerms}
