@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import time
 from typing import Any, Literal
@@ -31,7 +32,7 @@ CORS_ORIGINS = [
     "http://127.0.0.1:5173",
 ]
 
-RETRIEVAL_URL = "http://localhost:8003"
+RETRIEVAL_URL = os.environ.get("CLUSTERING_RETRIEVAL_URL", "http://localhost:8003")
 DOWNSTREAM_TIMEOUT = 180.0
 
 DATASET_IDS = ("touche2020", "nq")

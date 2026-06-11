@@ -1008,6 +1008,46 @@ The following charts visualise the core metrics across all five representations,
 
 *Figure 4: Recall at 10. The semantic representations (embedding, multi-encoder, hybrid) recover more relevant documents than lexical methods, reflecting the breadth of the BEIR qrels.*
 
+### 12.6 Impact of Cluster-Aware Retrieval
+
+The clustering service (Mini-Batch K-Means, k=20, applied to L6 embeddings) adds a 1.5× score boost to documents in the nearest cluster. It was evaluated against the same 249 BEIR queries used in Phase 9:
+
+| Dataset | Representation | Condition | MAP@10 | P@10 | nDCG@10 | R@10 | Time/q |
+|---------|---------------|-----------|--------|------|---------|------|--------|
+| Touché | embedding | baseline | 0.0351 | 0.2857 | 0.2248 | 0.0609 | 75 ms |
+| Touché | embedding | cluster | 0.0340 | 0.2857 | 0.2217 | 0.0609 | 350 ms |
+| Touché | BM25 | baseline | 0.1377 | 0.7388 | 0.6206 | 0.1521 | 28 ms |
+| Touché | BM25 | cluster | 0.1331 | 0.7388 | 0.6058 | 0.1521 | 241 ms |
+| NQ | embedding | baseline | 0.4308 | 0.0790 | 0.5005 | 0.6775 | 84 ms |
+| NQ | embedding | cluster | 0.3829 | 0.0790 | 0.4620 | 0.6775 | 379 ms |
+| NQ | BM25 | baseline | 0.2930 | 0.0610 | 0.3540 | 0.5183 | 22 ms |
+| NQ | BM25 | cluster | 0.2961 | 0.0610 | 0.3561 | 0.5183 | 260 ms |
+
+![Cluster MAP](../evaluation/reports/plots/clustering/MAP.png)
+
+*Figure 5: MAP@10 — baseline vs cluster. Clustering reduces MAP for embedding on both datasets (−3% Touché, −11% NQ) and has negligible effect on BM25.*
+
+![Cluster P@10](../evaluation/reports/plots/clustering/P@10.png)
+
+*Figure 6: P@10 — unchanged by clustering. The boost does not change which documents appear in the top 10, only their rank order.*
+
+![Cluster nDCG@10](../evaluation/reports/plots/clustering/nDCG@10.png)
+
+*Figure 7: nDCG@10 — slight degradation on both datasets for embedding (−1.4% Touché, −7.7% NQ). BM25 is essentially flat.*
+
+![Cluster R@10](../evaluation/reports/plots/clustering/R@10.png)
+
+*Figure 8: R@10 — identical across all conditions. Clustering does not affect recall at k=10.*
+
+**Key findings**:
+
+1. **Clustering is either neutral or harmful** for search quality. The 1.5× boost re-ranks cluster-mates above out-of-cluster documents, but the coarse k=20 clustering (~19K docs per cluster for Touché-2020, ~25K for NQ) is too broad to differentiate relevant from irrelevant cluster-mates.
+2. **Precision@10 and Recall@10 are entirely unaffected** — clustering changes scores but not the set of retrieved documents at k=10. The measurable impact is on ranking-sensitive metrics (MAP, nDCG) where boosting broad-cluster docs slightly degrades order quality.
+3. **Latency more than doubles** (75 → 350 ms for embedding, 22 → 260 ms for BM25), primarily from the `POST /retrieval/embed` call to encode the query for cluster prediction.
+4. **BM25 is largely immune** to cluster boost because BM25's lexical scores already produce well-ranked results on Touché-2020; boosting by cluster provides no additional signal.
+
+**Why clustering does not help**: The Mini-Batch K-Means clusters are built from L6 embeddings (semantic similarity), but the evaluation queries are already well-served by the primary representation. The 1.5× boost rewards cluster co-membership indiscriminately, effectively adding noise to the ranking. A finer cluster granularity (k=50–100) or a per-cluster relevance model (computing cluster-level query-likelihood) might yield positive results, but these are outside the current scope.
+
 ---
 
 ## 13. Analysis & Discussion

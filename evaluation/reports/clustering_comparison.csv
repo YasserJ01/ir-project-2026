@@ -1,0 +1,9 @@
+dataset,representation,condition,cluster_boost,MAP,P@10,nDCG@10,R@10,queries,time_s
+touche2020,embedding,baseline,0.0,0.0351,0.2857,0.2248,0.0609,49,3.7
+touche2020,embedding,cluster,1.5,0.034,0.2857,0.2217,0.0609,49,17.1
+touche2020,bm25,baseline,0.0,0.1377,0.7388,0.6206,0.1521,49,1.4
+touche2020,bm25,cluster,1.5,0.1331,0.7388,0.6058,0.1521,49,11.8
+nq,embedding,baseline,0.0,0.4308,0.079,0.5005,0.6775,200,16.8
+nq,embedding,cluster,1.5,0.3829,0.079,0.462,0.6775,200,75.7
+nq,bm25,baseline,0.0,0.293,0.061,0.354,0.5183,200,4.4
+nq,bm25,cluster,1.5,0.2961,0.061,0.3561,0.5183,200,52.1
