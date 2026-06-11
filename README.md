@@ -49,6 +49,10 @@ make ingest-a      # beir/webis-touche2020  -> 382,544 docs
 make ingest-b      # beir/nq                 -> 500,000 docs (capped)
 make tokenize      # docs.jsonl -> tokens.jsonl (~10 min with 8 workers)
 
+# 4b. (Professor req) Migrate processed docs to SQLite for runtime access
+py -3.12 -m scripts.build_doc_db           # builds data/dbs/{ds}.db (~12 min total)
+#   After this, GET /docs/{dataset_id}/{doc_id} returns original text from SQLite
+
 # 5. Build the classical indexes (Phase 2 — ~8 min, 1.1 GB on disk)
 make build-indexes   # inverted + TF-IDF + BM25 for both datasets
 make smoke-search   # hand-test the search results
@@ -127,6 +131,7 @@ graph TB
     GW --> RG["RAG (:8005)"]
     PP -->|"tokens"| IX
     PP -->|"docs/{id}"| RG
+    PP -->|"docs/{id}"| DB[(SQLite<br/>data/dbs/)]
     IX -->|"BM25/TF-IDF"| RT
     RT -->|"hybrid/multi-encoder"| RG
     RF -->|"log/click"| UL[("User Logs<br/>data/user_logs/")]
@@ -134,6 +139,7 @@ graph TB
         P[(processed/)]
         I[(indexes/)]
         M[(models/)]
+        DBS[(dbs/)]
     end
     IX --> P
     IX --> I
@@ -177,7 +183,7 @@ ir-project-2026/
 ├── Makefile
 ├── .env.example
 ├── .gitignore
-├── data/                      # gitignored — populated at runtime
+├── data/                      # gitignored — populated at runtime (dbs/*.db excluded, .gitkeep tracked)
 ├── docs/
 ├── evaluation/
 ├── reports/

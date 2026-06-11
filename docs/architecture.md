@@ -1,6 +1,6 @@
 # Architecture
 
-> Updated through **Phase 8**.
+> Updated through **Phase 8** + SQLite doc store (2026-06-11).
 
 ## High-level diagram
 
@@ -91,6 +91,11 @@ data/
 │
 ├── dicts/                          # Phase 4 spell dictionaries (gitignored)
 │   └── frequency_dictionary_en_82_765.txt  # SymSpell, 1.3 MB
+│
+├── dbs/                            # SQLite doc databases (gitignored *.db)
+│   ├── .gitkeep                    # tracked placeholder
+│   ├── touche2020.db               # 382,544 docs, 784 MB (original text)
+│   └── nq.db                       # 500,000 docs, 293 MB (original text)
 │
 ├── user_logs/                      # Phase 4 personalization (gitignored)
 │   ├── user_1.jsonl                # 53 synthetic past queries + click counts

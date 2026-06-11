@@ -236,10 +236,26 @@
 - **RAG C — Query expansion via refinement**: `rag_client.py` adds `REFINEMENT_URL` env var + `refine_query()` calling `POST /refine` on :8004. `service.py:answer()` calls refinement before retrieval, uses `expanded_query` for search. `RagResponse.refined_query` field returns the expanded query. Graceful degradation if :8004 unreachable. RagPanel shows expanded query when different from original.
 - **RAG E — SSE streaming**: `generator.py` adds `generate_stream()` with `llama_cpp stream=True`, yields tokens one-by-one. `service.py` adds `POST /rag/answer/stream` returning `text/event-stream` with stage events + token events + done event. Gateway adds `POST /api/rag/answer/stream` proxy (unbuffered `StreamingResponse`). `RagClient` adds `answer_stream()` using `_post_stream`. `client.ts` adds `ragAnswerStream()` using native `fetch` + `ReadableStream`. RagPanel adds "Stream" checkbox toggle; when enabled, tokens appear incrementally instead of waiting for the full response.
 - **328 Python tests + 18 Vitest all pass**. `tsc -b` clean. `vite build` (163 modules, 259.46 kB JS, 1.74 s).
-- Commits: `39e4be9` (UI), `1f70508` (A/B/C), `<pending>` (E streaming).
+- Commits: `39e4be9` (UI), `1f70508` (A/B/C), `3128ee9` (E streaming).
 - **Session 2026-06-10 — RAG G (inline citations) + RAG H (conversation history)**:
   - **G — Inline citations**: New `citations.py` module with `extract_citations()` parsing `[N]` markers from model output. Context format changed from `[doc_id=xxx]` to `[N]` in `context.py`. `RagResponse.citations` field added to schema (`dict[str, str]` mapping citation number → doc_id). `Generator._INSTRUCTION_PHRASES` updated to match new system prompt wording ("Cite sources as [1], [2], etc."). UI: `CitationPopover.tsx` component renders `[N]` as hoverable superscript; answer text is post-processed with `renderAnswerWithCitations()` replacing `[N]` markers with interactive elements. "Cited sources" section lists the citation-to-doc_id mapping below the answer.
   - **H — Conversation history**: New `history.py` module with `ConversationStore` class (in-memory dict with `push()` + `format_history()` + auto-prune to 3 turns / 400 token budget). Module-level singleton via `get_store()`. `RagRequest.conversation_id` field added to schema (`str | None`). `service.py` injects history into the prompt and saves turns after generation in both sync and streaming paths. UI: `ConversationHistory.tsx` component shows collapsible turn list. RagPanel adds "History" checkbox toggle and auto-generates a session ID on first ask.
   - **13 new Python tests** (citations + history: basic parsing, out-of-range, mixed, adjacent, empty, push/format, unknown conv, multi-conversation independence). 341 total Python tests passing.
   - **`vite build`**: 165 modules, 262.24 kB JS (84.97 kB gzip), 2.44 s build.
   - SSE streaming Vite proxy fix: dedicated `/api/rag/answer/stream` entry disables compression and strips `Content-Length` to prevent buffering.
+  - Gateway `user_id` fix (commit `7dade50`): default to `"anonymous"` when `None` to prevent 422 errors on embedding/hybrid paths.
+  - Commits: `3128ee9` (E), `80d33f2` (G+H), `7dade50` (gateway fix).
+  - Cleanup: `77f4d50` added `tmp_*` to `.gitignore`; `112d7c5` removed temp log files from tracking.
+
+## Session 2026-06-11 — SQLite Document Database (professor requirement) ✅
+- **Requirement**: "After training, store original documents in a database (SQLite)" + "Retrieve original docs from DB by ID, display original uncleaned text."
+- **`shared/ir_common/doc_db.py`** — new module with `create_db()`, `insert_docs()`, `get_doc()`. One SQLite file per dataset at `data/dbs/{ds}.db`. Schema: `CREATE TABLE documents (doc_id TEXT PRIMARY KEY, text TEXT)`.
+- **`scripts/build_doc_db.py`** — migration script reading `data/processed/{ds}/docs.jsonl` and writing to SQLite in 1,000-doc batches.
+- **Migration complete**:
+  - `touche2020`: 382,544 docs → 784 MB
+  - `nq`: 500,000 docs → 293 MB
+  - Total: 882,544 docs, ~1.08 GB, ~11 min wall time.
+- **`services/preprocessing/app/pipeline.py`** updated: `/docs/{ds}/{id}` endpoint now reads from SQLite via `doc_db.get_doc()` instead of `ir_datasets.load().docs_store()`. No more runtime dependency on `ir_datasets`.
+- **Verified**: both datasets return original uncleaned text from SQLite (URLs, lists, punctuation preserved). See `test_docs_sqlite` session.
+- **Docs updated**: `README.md` (architecture diagram + layout + quick start), `docs/architecture.md` (`dbs/` under data layout), `docs/progress.md` (this entry).
+- Commit: `1f04f65` pushed to `YasserJ01/ir-project-2026` on `main`.
