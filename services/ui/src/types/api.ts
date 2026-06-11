@@ -152,6 +152,34 @@ export interface GatewayErrorBody {
   detail: string;
 }
 
+/** Body for `POST /api/cluster/{ds}/search`. */
+export interface ClusterSearchRequest {
+  query: string;
+  dataset_id: DatasetId;
+  representation?: Representation;
+  k?: number;
+  mode?: SearchMode;
+  fusion?: FusionMethod;
+  user_id?: string | null;
+  enable_grammar?: boolean;
+  bm25_k1?: number;
+  bm25_b?: number;
+  enable_clustering?: boolean;
+  cluster_boost?: number;
+}
+
+/** Response from `POST /api/cluster/{ds}/search`. */
+export interface ClusterSearchResponse {
+  results: SearchHit[];
+  query: string;
+  dataset_id: DatasetId;
+  latency_ms: number;
+  nearest_cluster_id: number;
+  cluster_centroid_distance: number;
+  cluster_sizes: number[];
+  representation: Representation;
+}
+
 /** Axios error augmentation. */
 export interface ApiError {
   status: number;

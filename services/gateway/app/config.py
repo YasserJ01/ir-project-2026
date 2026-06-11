@@ -26,6 +26,7 @@ class GatewayConfig:
     retrieval_url: str = _env("RETRIEVAL_URL", "http://localhost:8003")
     refinement_url: str = _env("REFINEMENT_URL", "http://localhost:8004")
     rag_url: str = _env("RAG_URL", "http://localhost:8005")
+    clustering_url: str = _env("CLUSTERING_URL", "http://localhost:8006")
 
     # How long to wait on any single downstream call.
     downstream_timeout_s: float = float(_env("GATEWAY_DOWNSTREAM_TIMEOUT", "180"))

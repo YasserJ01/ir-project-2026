@@ -21,6 +21,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from shared.ir_common.schemas import (
+    ClusterSearchRequest,
+    ClusterSearchResponse,
+    ClusterStatsResponse,
     DATASET_IDS,
     GatewayErrorResponse,
     GatewayHealthResponse,
@@ -71,6 +74,9 @@ class GatewaySearchRequest(BaseModel):
 
 
 __all__ = [
+    "ClusterSearchRequest",
+    "ClusterSearchResponse",
+    "ClusterStatsResponse",
     "DATASET_IDS",
     "GatewayErrorResponse",
     "GatewayHealthResponse",

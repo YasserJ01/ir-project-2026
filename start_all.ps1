@@ -14,6 +14,7 @@ $backendServices = @(
     @{name="retrieval";      port=8003; mod="services.retrieval.app.service:app"}
     @{name="refinement";     port=8004; mod="services.refinement.app.service:app"}
     @{name="rag";            port=8005; mod="services.rag.app.service:app"}
+    @{name="clustering";     port=8006; mod="services.clustering.app.service:app"}
     @{name="gateway";        port=8000; mod="services.gateway.app.main:app"}
 )
 

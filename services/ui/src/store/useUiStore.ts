@@ -32,12 +32,18 @@ interface UiState {
   bm25: Bm25;
   /** Per-browser persistent user id. Random UUID on first visit. */
   userId: string;
+  /** Cluster boost on/off. */
+  enableClustering: boolean;
+  /** Cluster boost multiplier (1.0–3.0). */
+  clusterBoost: number;
   setDataset: (d: DatasetId) => void;
   setMode: (m: SearchMode) => void;
   setRepresentation: (r: Representation) => void;
   setFusion: (f: FusionMethod) => void;
   setBm25: (b: Bm25) => void;
   resetBm25: () => void;
+  setEnableClustering: (v: boolean) => void;
+  setClusterBoost: (v: number) => void;
 }
 
 const DEFAULT_BM25: Bm25 = { k1: 1.5, b: 0.75 };
@@ -60,12 +66,16 @@ export const useUiStore = create<UiState>()(
       fusion: "rrf",
       bm25: { ...DEFAULT_BM25 },
       userId: newUserId(),
+      enableClustering: false,
+      clusterBoost: 1.5,
       setDataset: (dataset) => set({ dataset }),
       setMode: (mode) => set({ mode }),
       setRepresentation: (representation) => set({ representation }),
       setFusion: (fusion) => set({ fusion }),
       setBm25: (bm25) => set({ bm25 }),
       resetBm25: () => set({ bm25: { ...DEFAULT_BM25 } }),
+      setEnableClustering: (v) => set({ enableClustering: v }),
+      setClusterBoost: (v) => set({ clusterBoost: v }),
     }),
     {
       name: "ir-ui",

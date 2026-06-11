@@ -715,6 +715,59 @@ class LogClickRequest(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Clustering (Phase 10+)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class ClusterSearchRequest(BaseModel):
+    """Body for ``POST /cluster/{dataset_id}/search``."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    query: str = Field(..., min_length=1, max_length=2048)
+    k: int = Field(default=10, ge=1, le=200)
+    representation: Literal["tfidf", "bm25", "embedding", "hybrid_serial", "hybrid_parallel"] = (
+        "embedding"
+    )
+    mode: Literal["basic", "with_features"] = "basic"
+    fusion: Literal["rrf", "combsum", "combmnz"] = "rrf"
+    user_id: str | None = Field(default=None)
+    enable_grammar: bool = False
+    bm25_k1: float = Field(default=1.5, ge=0.0, le=10.0)
+    bm25_b: float = Field(default=0.75, ge=0.0, le=1.0)
+    enable_clustering: bool = Field(default=True)
+    cluster_boost: float = Field(default=1.5, ge=1.0, le=5.0)
+
+
+class ClusterSearchResponse(BaseModel):
+    """Response from ``POST /cluster/{dataset_id}/search``."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    results: list[dict[str, object]] = Field(default_factory=list)
+    query: str = ""
+    dataset_id: str = ""
+    latency_ms: float = 0.0
+    nearest_cluster_id: int = -1
+    cluster_centroid_distance: float = 0.0
+    cluster_sizes: list[int] = Field(default_factory=list)
+    representation: str = "embedding"
+
+
+class ClusterStatsResponse(BaseModel):
+    """Response from ``GET /cluster/{dataset_id}/stats``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_id: str
+    built: bool = False
+    n_clusters: int = 0
+    per_cluster_counts: list[int] = Field(default_factory=list)
+    inertia: float = 0.0
+    total_docs: int = 0
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # RAG (Phase 8)
 # ─────────────────────────────────────────────────────────────────────────
 

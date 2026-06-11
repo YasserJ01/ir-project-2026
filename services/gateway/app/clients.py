@@ -222,6 +222,13 @@ class RefinementClient(_BaseClient):
         await self._post_json("/log/click", body)
 
 
+class ClusteringClient(_BaseClient):
+    service_name = "clustering"
+
+    async def search(self, dataset_id: str, req_body: dict[str, object]) -> dict[str, object]:
+        return await self._post_json(f"/cluster/{dataset_id}/search", req_body)
+
+
 class RagClient(_BaseClient):
     service_name = "rag"
 
@@ -243,7 +250,7 @@ class RagClient(_BaseClient):
 
 
 class GatewayClients:
-    """Container that owns the 5 backend clients and their lifecycle."""
+    """Container that owns the 6 backend clients and their lifecycle."""
 
     def __init__(
         self,
@@ -252,6 +259,7 @@ class GatewayClients:
         retrieval_url: str,
         refinement_url: str,
         rag_url: str,
+        clustering_url: str,
         timeout_s: float,
     ) -> None:
         self.preprocessing = PreprocessingClient(preprocessing_url, timeout_s)
@@ -259,6 +267,7 @@ class GatewayClients:
         self.retrieval = RetrievalClient(retrieval_url, timeout_s)
         self.refinement = RefinementClient(refinement_url, timeout_s)
         self.rag = RagClient(rag_url, timeout_s)
+        self.clustering = ClusteringClient(clustering_url, timeout_s)
         self.rag_url = rag_url
         self._all = [
             self.preprocessing,
@@ -266,6 +275,7 @@ class GatewayClients:
             self.retrieval,
             self.refinement,
             self.rag,
+            self.clustering,
         ]
 
     async def open(self) -> None:

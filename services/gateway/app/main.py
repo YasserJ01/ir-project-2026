@@ -40,6 +40,7 @@ from services.gateway.app.clients import (  # noqa: E402
 from services.gateway.app.config import CONFIG  # noqa: E402
 from services.gateway.app.middleware import RequestContextMiddleware  # noqa: E402
 from services.gateway.app.schemas import (  # noqa: E402
+    ClusterSearchRequest,
     DATASET_IDS,
     GatewayErrorResponse,
     GatewayHealthResponse,
@@ -68,6 +69,7 @@ async def lifespan(_: FastAPI):
         retrieval_url=CONFIG.retrieval_url,
         refinement_url=CONFIG.refinement_url,
         rag_url=CONFIG.rag_url,
+        clustering_url=CONFIG.clustering_url,
         timeout_s=CONFIG.downstream_timeout_s,
     )
     await clients.open()
@@ -167,6 +169,7 @@ def root() -> dict[str, Any]:
             "POST /api/log/click",
             "POST /api/multi-encoder/{ds}/search",
             "POST /api/rag/answer",
+            "POST /api/cluster/{ds}/search",
         ],
         "downstream": {
             "preprocessing": CONFIG.preprocessing_url,
@@ -174,6 +177,7 @@ def root() -> dict[str, Any]:
             "retrieval": CONFIG.retrieval_url,
             "refinement": CONFIG.refinement_url,
             "rag": CONFIG.rag_url,
+            "clustering": CONFIG.clustering_url,
         },
         "see": "docs/PHASE_8.md",
     }
@@ -359,6 +363,31 @@ async def rag_answer_stream(request: Request, body: RagRequest):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.post("/api/cluster/{dataset_id}/search")
+async def cluster_search(
+    dataset_id: str, request: Request, body: ClusterSearchRequest
+) -> dict[str, object]:
+    """Cluster-constrained search via :8006.
+
+    Accepts the same body as ``/api/search`` plus ``enable_clustering``
+    and ``cluster_boost``. The clustering service applies Mini-Batch
+    K-Means to boost results from the nearest cluster centroid.
+    """
+    if dataset_id not in DATASET_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown dataset_id {dataset_id!r}; must be one of {list(DATASET_IDS)}",
+        )
+    clients = _clients(request)
+    try:
+        payload: dict[str, object] = body.model_dump()
+        if payload.get("user_id") is None:
+            payload["user_id"] = "anonymous"
+        return await clients.clustering.search(dataset_id, payload)
+    except (BackendUnreachable, BackendClientError) as exc:
+        raise _downstream_error_response(exc) from exc
 
 
 # ─────────────────────────────────────────────────────────────────────────

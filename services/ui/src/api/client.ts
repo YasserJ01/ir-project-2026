@@ -11,6 +11,8 @@
 
 import axios, { AxiosError, type AxiosInstance } from "axios";
 import type {
+  ClusterSearchRequest,
+  ClusterSearchResponse,
   DatasetId,
   DatasetsResponse,
   DocResponse,
@@ -50,6 +52,18 @@ api.interceptors.response.use(
  */
 export function search(req: SearchRequest): Promise<SearchResponse> {
   return api.post<SearchResponse>("/search", req).then((r) => r.data);
+}
+
+/**
+ * `POST /cluster/{dataset_id}/search` → clustering service (port 8006).
+ * Applies Mini-Batch K-Means cluster boost to search results.
+ */
+export function clusterSearch(
+  req: ClusterSearchRequest,
+): Promise<ClusterSearchResponse> {
+  return api
+    .post<ClusterSearchResponse>(`/cluster/${req.dataset_id}/search`, req)
+    .then((r) => r.data);
 }
 
 /**

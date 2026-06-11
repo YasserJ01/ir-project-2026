@@ -19,10 +19,13 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearch, errorMessage } from "../hooks/useSearch";
+import { clusterSearch, errorMessage } from "../api/client";
+import { useSearch } from "../hooks/useSearch";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useUiStore } from "../store/useUiStore";
-import type { SearchRequest } from "../types/api";
+import type { ClusterSearchResponse, SearchRequest } from "../types/api";
+import ClusterBarChart from "../components/ClusterBarChart";
+import ClusteringToggle from "../components/ClusteringToggle";
 import DatasetSelector from "../components/DatasetSelector";
 import ModeToggle from "../components/ModeToggle";
 import RepresentationPicker from "../components/RepresentationPicker";
@@ -47,10 +50,17 @@ export default function HomePage() {
   const fusion = useUiStore((s) => s.fusion);
   const bm25 = useUiStore((s) => s.bm25);
   const userId = useUiStore((s) => s.userId);
+  const enableClustering = useUiStore((s) => s.enableClustering);
+  const clusterBoost = useUiStore((s) => s.clusterBoost);
+  const setEnableClustering = useUiStore((s) => s.setEnableClustering);
+  const setClusterBoost = useUiStore((s) => s.setClusterBoost);
   const [dark, toggleDark] = useDarkMode();
 
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState("");
+  const [clusterData, setClusterData] = useState<ClusterSearchResponse | null>(null);
+  const [clusterLoading, setClusterLoading] = useState(false);
+  const [clusterError, setClusterError] = useState<string | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
   // The `SearchRequest` body. We include bm25 k1/b for the lexical
@@ -85,8 +95,31 @@ export default function HomePage() {
 
   const onSubmit = () => {
     setSubmitted(query);
-    // refetch immediately in case useSearch hasn't seen the new key yet
-    // (it has, but this is a no-op in practice — kept for explicitness).
+    setClusterData(null);
+    setClusterError(null);
+
+    if (enableClustering) {
+      setClusterLoading(true);
+      clusterSearch({
+        query,
+        dataset_id: dataset,
+        representation,
+        k: 10,
+        mode,
+        fusion,
+        user_id: userId,
+        enable_grammar: false,
+        bm25_k1: bm25.k1,
+        bm25_b: bm25.b,
+        enable_clustering: true,
+        cluster_boost: clusterBoost,
+      })
+        .then((r) => setClusterData(r))
+        .catch((e) => setClusterError(errorMessage(e)))
+        .finally(() => setClusterLoading(false));
+      return;
+    }
+
     void refetch();
   };
 
@@ -139,6 +172,12 @@ export default function HomePage() {
         <RepresentationPicker />
         {showFusion && <HybridConfigPicker />}
         {showBm25 && <Bm25Sliders />}
+        <ClusteringToggle
+          enabled={enableClustering}
+          boost={clusterBoost}
+          onToggle={setEnableClustering}
+          onBoostChange={setClusterBoost}
+        />
         <SearchBar
           value={query}
           onChange={setQuery}
@@ -178,14 +217,38 @@ export default function HomePage() {
           </div>
         ) : (
           <div ref={resultsRef} tabIndex={-1}>
-            <ResultsList
-              hits={data?.results ?? []}
-              loading={isFetching}
-              error={error ? errorMessage(error) : null}
-              query={submitted}
-              datasetId={dataset}
-              highlightTerms={highlightTerms}
-            />
+            {enableClustering && clusterData && (
+              <div className="mb-2 flex items-start gap-4">
+                <div className="flex-1">
+                  <ClusterBarChart
+                    sizes={clusterData.cluster_sizes}
+                    nearest={clusterData.nearest_cluster_id}
+                  />
+                </div>
+                <p className="flex-shrink-0 text-xs text-slate-400">
+                  Cluster {clusterData.nearest_cluster_id} &middot; d={clusterData.cluster_centroid_distance}
+                </p>
+              </div>
+            )}
+            {enableClustering ? (
+              <ResultsList
+                hits={clusterData?.results ?? []}
+                loading={clusterLoading}
+                error={clusterError}
+                query={submitted}
+                datasetId={dataset}
+                highlightTerms={highlightTerms}
+              />
+            ) : (
+              <ResultsList
+                hits={data?.results ?? []}
+                loading={isFetching}
+                error={error ? errorMessage(error) : null}
+                query={submitted}
+                datasetId={dataset}
+                highlightTerms={highlightTerms}
+              />
+            )}
           </div>
         )}
 
