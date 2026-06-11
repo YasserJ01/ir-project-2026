@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { ragAnswer, ragAnswerStream, errorMessage } from "../api/client";
 import type { DatasetId } from "../types/api";
 import CitationPopover from "./CitationPopover";
-import ConversationHistory from "./ConversationHistory";
 
 interface Turn {
   role: "user" | "assistant";
@@ -64,19 +63,24 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
   const [stage, setStage] = useState<string | null>(null);
   const [conversationEnabled, setConversationEnabled] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [inlineQuery, setInlineQuery] = useState("");
   const conversationIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setOpen(false);
   }, [query]);
 
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [answer, turns]);
+
   if (!enabled) return null;
 
   const canAsk = query.trim().length > 0 && !loading;
 
-  async function onAsk() {
-    setOpen(true);
+  function resetState() {
     setLoading(true);
     setErr(null);
     setAnswer(null);
@@ -84,6 +88,10 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
     setCitations({});
     setRefinedQuery(null);
     setStage(null);
+  }
+
+  async function _ask(q: string) {
+    resetState();
 
     if (!conversationIdRef.current && conversationEnabled) {
       conversationIdRef.current = generateId();
@@ -93,13 +101,13 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
 
     if (!streaming) {
       try {
-        const r = await ragAnswer({ query, dataset_id: dataset, k: 5, max_tokens: 256, retriever, conversation_id: convId });
+        const r = await ragAnswer({ query: q, dataset_id: dataset, k: 5, max_tokens: 256, retriever, conversation_id: convId });
         setAnswer(r.answer ?? "(no answer returned)");
         setSources(r.source_doc_ids ?? []);
         setCitations(r.citations ?? {});
         setRefinedQuery(r.refined_query ?? null);
         if (convId && r.answer) {
-          setTurns((prev) => [...prev, { role: "user", text: query }, { role: "assistant", text: r.answer! }]);
+          setTurns((prev) => [...prev, { role: "user", text: q }, { role: "assistant", text: r.answer! }]);
         }
       } catch (e) {
         setErr(errorMessage(e));
@@ -113,7 +121,7 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
     abortRef.current = ctrl;
 
     await ragAnswerStream(
-      { query, dataset_id: dataset, k: 5, max_tokens: 256, retriever, conversation_id: convId },
+      { query: q, dataset_id: dataset, k: 5, max_tokens: 256, retriever, conversation_id: convId },
       {
         onStage: (s, data) => {
           setStage(s);
@@ -131,7 +139,7 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
           setLoading(false);
           setStage(null);
           if (convId && ans) {
-            setTurns((prev) => [...prev, { role: "user", text: query }, { role: "assistant", text: ans }]);
+            setTurns((prev) => [...prev, { role: "user", text: q }, { role: "assistant", text: ans }]);
           }
         },
         onError: (msg) => {
@@ -143,6 +151,21 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
       ctrl.signal,
     );
   }
+
+  async function onAsk() {
+    setOpen(true);
+    await _ask(query);
+  }
+
+  async function onInlineSend() {
+    const q = inlineQuery.trim();
+    if (!q || loading) return;
+    setInlineQuery("");
+    setOpen(true);
+    await _ask(q);
+  }
+
+  const inputDisabled = loading;
 
   return (
     <section className="rounded-md border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-600 dark:bg-slate-800">
@@ -179,7 +202,7 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
               onChange={(e) => setConversationEnabled(e.target.checked)}
               className="h-3 w-3 rounded border-slate-300 text-indigo-600"
             />
-            History
+            Chat
           </label>
           <button
             type="button"
@@ -187,29 +210,48 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
             onClick={onAsk}
             className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
-            {loading ? "Asking…" : "Get an answer"}
+            {loading ? "Asking\u2026" : "Get an answer"}
           </button>
         </div>
       </div>
       {open && (
-        <div className="mt-2 space-y-2 text-sm">
+        <div className="mt-2 space-y-3 text-sm">
           {conversationEnabled && turns.length > 0 && (
-            <ConversationHistory turns={turns} />
+            <div className="flex flex-col gap-3">
+              {turns.map((turn, i) => (
+                <div
+                  key={i}
+                  className={`rounded-md px-3 py-2 ${
+                    turn.role === "user"
+                      ? "ml-8 bg-indigo-50 text-indigo-900 dark:bg-indigo-900/30 dark:text-indigo-100"
+                      : "mr-8 bg-slate-50 text-slate-800 dark:bg-slate-700 dark:text-slate-100"
+                  }`}
+                >
+                  <span className="text-xs font-semibold opacity-60">
+                    {turn.role === "user" ? "You" : "RAG"}
+                  </span>
+                  <p className="mt-0.5 text-sm">{turn.text}</p>
+                </div>
+              ))}
+            </div>
           )}
           {refinedQuery && refinedQuery !== query && (
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Expanded from: <span className="italic">{query}</span> →{" "}
+              Expanded from: <span className="italic">{query}</span> {"\u2192"}{" "}
               <span className="font-medium">{refinedQuery}</span>
             </p>
           )}
           {stage && (
             <p className="text-xs text-slate-400 dark:text-slate-500">
-              {stage === "retrieval" ? "Retrieving documents…" : stage}
+              {stage === "retrieval" ? "Retrieving documents\u2026" : stage}
             </p>
           )}
           {loading && !stage && (
-            <p className="animate-pulse text-slate-500 dark:text-slate-400">
-              {streaming ? "Generating…" : "Generating answer…"}
+            <p className="text-slate-500 dark:text-slate-400">
+              Generating
+              <span className="typing-dot">.</span>
+              <span className="typing-dot">.</span>
+              <span className="typing-dot">.</span>
             </p>
           )}
           {err && (
@@ -221,8 +263,15 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
             </p>
           )}
           {answer && (
-            <div>
-              <p className="text-slate-800 dark:text-slate-100">
+            <div
+              className={`rounded-md px-3 py-2 ${
+                conversationEnabled ? "mr-8 bg-slate-50 dark:bg-slate-700" : ""
+              }`}
+            >
+              {conversationEnabled && (
+                <span className="text-xs font-semibold opacity-60">RAG</span>
+              )}
+              <p className="mt-0.5 text-slate-800 dark:text-slate-100">
                 {renderAnswerWithCitations(answer, citations)}
               </p>
               {Object.keys(citations).length > 0 && (
@@ -244,6 +293,33 @@ export default function RagPanel({ query, dataset, enabled }: Props) {
               )}
             </div>
           )}
+
+          <div className="flex gap-2 border-t border-slate-200 pt-2 dark:border-slate-600">
+            <input
+              type="text"
+              value={inlineQuery}
+              onChange={(e) => setInlineQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void onInlineSend();
+                }
+              }}
+              placeholder="Ask a follow-up question\u2026"
+              disabled={inputDisabled}
+              className="flex-1 rounded border border-slate-300 bg-white px-2 py-1.5 text-xs focus:border-indigo-500 focus:outline-none dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+              aria-label="Follow-up question"
+            />
+            <button
+              type="button"
+              onClick={onInlineSend}
+              disabled={inlineQuery.trim().length === 0 || inputDisabled}
+              className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              Send
+            </button>
+          </div>
+          <div ref={chatEndRef} />
         </div>
       )}
     </section>

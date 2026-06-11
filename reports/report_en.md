@@ -945,6 +945,26 @@ The UI is built for production via `npm run build` (TypeScript compile + Vite bu
 | NQ | 14 min 26 s | 200 | 18 | 241 ms/query/run |
 | **Total** | **19 min 14 s** | **249** | **36** | **258 ms/query/run** |
 
+### 12.5 Evaluation Charts
+
+The following charts visualise the core metrics across all five representations, averaged over both datasets. Each bar represents the mean of the two conditions (baseline + with_features) to show overall performance.
+
+![MAP@10](../evaluation/reports/plots/MAP.png)
+
+*Figure 1: Mean Average Precision at 10. Multi-encoder achieves the highest MAP (0.2518), followed closely by embedding (0.2330) and BM25 (0.2154). TF-IDF trails at 0.0772.*
+
+![P@10](../evaluation/reports/plots/P@10.png)
+
+*Figure 2: Precision at 10. BM25 dominates on Touché-2020 (P@10=0.7388) thanks to its lexical strength for argument retrieval. Multi-encoder leads on NQ (P@10=0.0840).*
+
+![nDCG@10](../evaluation/reports/plots/nDCG@10.png)
+
+*Figure 3: Normalized Discounted Cumulative Gain at 10. The multi-encoder's cross-dataset average nDCG@10 (0.3810) confirms its ranking quality for open-domain QA. BM25's strong Touché-2020 score (0.6206) is partially offset by its lower NQ score (0.3540).*
+
+![R@10](../evaluation/reports/plots/R@10.png)
+
+*Figure 4: Recall at 10. The semantic representations (embedding, multi-encoder, hybrid) recover more relevant documents than lexical methods, reflecting the breadth of the BEIR qrels.*
+
 ---
 
 ## 13. Analysis & Discussion
