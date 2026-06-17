@@ -26,6 +26,7 @@ import { useUiStore } from "../store/useUiStore";
 import type { ClusterSearchResponse, SearchRequest } from "../types/api";
 import ClusterBarChart from "../components/ClusterBarChart";
 import ClusteringToggle from "../components/ClusteringToggle";
+import EvalPanel from "../components/EvalPanel";
 import DatasetSelector from "../components/DatasetSelector";
 import ModeToggle from "../components/ModeToggle";
 import RepresentationPicker from "../components/RepresentationPicker";
@@ -257,6 +258,15 @@ export default function HomePage() {
         )}
 
         <RagPanel query={submitted} dataset={dataset} enabled={submitted.length > 0} />
+
+        <EvalPanel
+          dataset={dataset}
+          representation={representation}
+          mode={mode}
+          fusion={fusion}
+          bm25K1={bm25.k1}
+          bm25B={bm25.b}
+        />
       </section>
 
       <footer className="mx-auto max-w-5xl p-4 text-center text-xs text-slate-400 dark:text-slate-500">

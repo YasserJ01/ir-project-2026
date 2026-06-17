@@ -38,6 +38,8 @@ from shared.ir_common.schemas import (
     RefineResponse,
 )
 
+from . import evaluate as evaluate_mod
+
 
 class GatewaySearchRequest(BaseModel):
     """Body for ``POST /api/search``.
@@ -71,6 +73,22 @@ class GatewaySearchRequest(BaseModel):
     # hybrid endpoint (Phase 5) for the hybrid paths.
     bm25_k1: float = Field(default=1.5, ge=0.0, le=10.0)
     bm25_b: float = Field(default=0.75, ge=0.0, le=1.0)
+
+
+class EvaluateRequest(BaseModel):
+    """Body for ``POST /api/evaluate`` — run a live evaluation."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    dataset_id: Literal["touche2020", "nq"]
+    representation: Literal["tfidf", "bm25", "embedding", "hybrid_serial", "hybrid_parallel"] = (
+        "bm25"
+    )
+    mode: Literal["basic", "with_features"] = "basic"
+    fusion: Literal["rrf", "combsum", "combmnz"] = "rrf"
+    bm25_k1: float = Field(default=1.5, ge=0.0, le=10.0)
+    bm25_b: float = Field(default=0.75, ge=0.0, le=1.0)
+    use_multi: bool = False
 
 
 __all__ = [

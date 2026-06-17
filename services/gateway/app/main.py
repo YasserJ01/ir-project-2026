@@ -37,11 +37,13 @@ from services.gateway.app.clients import (  # noqa: E402
     BackendUnreachable,
     GatewayClients,
 )
+from services.gateway.app import evaluate as evaluate_mod  # noqa: E402
 from services.gateway.app.config import CONFIG  # noqa: E402
 from services.gateway.app.middleware import RequestContextMiddleware  # noqa: E402
 from services.gateway.app.schemas import (  # noqa: E402
     ClusterSearchRequest,
     DATASET_IDS,
+    EvaluateRequest,
     GatewayErrorResponse,
     GatewayHealthResponse,
     GatewaySearchRequest,
@@ -172,6 +174,7 @@ def root() -> dict[str, Any]:
             "POST /api/refine",
             "POST /api/log/click",
             "POST /api/multi-encoder/{ds}/search",
+            "POST /api/evaluate",
             "POST /api/rag/answer",
             "POST /api/cluster/{ds}/search",
         ],
@@ -394,6 +397,35 @@ async def cluster_search(
         return await clients.clustering.search(dataset_id, payload)
     except (BackendUnreachable, BackendClientError) as exc:
         raise _downstream_error_response(exc) from exc
+
+
+@app.post("/api/evaluate")
+async def evaluate(request: Request, body: EvaluateRequest) -> dict[str, object]:
+    """Run live evaluation for a given configuration.
+
+    Loads the pre-sampled queries from ``evaluation/queries/<dataset>.txt``,
+    runs every query through the configured search pipeline, and returns
+    aggregated metrics (MAP@10, P@10, nDCG@10, R@10).
+
+    The evaluation uses the same gateway client instances as regular
+    requests, so it exercises the identical code path.
+    """
+    clients = _clients(request)
+    try:
+        result = await evaluate_mod.run_evaluation(
+            clients=clients,
+            dataset_id=body.dataset_id,
+            representation=body.representation,
+            fusion=body.fusion,
+            mode=body.mode,
+            bm25_k1=body.bm25_k1,
+            bm25_b=body.bm25_b,
+            use_multi=body.use_multi,
+        )
+        return result
+    except Exception as exc:
+        logger.exception("Evaluation failed for %s", body.dataset_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 # ─────────────────────────────────────────────────────────────────────────

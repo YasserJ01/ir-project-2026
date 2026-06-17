@@ -180,6 +180,34 @@ export interface ClusterSearchResponse {
   representation: Representation;
 }
 
+/** Body for `POST /api/evaluate`. */
+export interface EvaluateRequest {
+  dataset_id: DatasetId;
+  representation?: Representation;
+  mode?: SearchMode;
+  fusion?: FusionMethod;
+  bm25_k1?: number;
+  bm25_b?: number;
+  use_multi?: boolean;
+}
+
+/** Response from `POST /api/evaluate`. */
+export interface EvaluateResponse {
+  dataset_id: DatasetId;
+  representation: string;
+  condition: "baseline" | "with_features";
+  queries: number;
+  success: number;
+  errors: number;
+  time_s: number;
+  metrics: {
+    MAP: number;
+    "P@10": number;
+    "nDCG@10": number;
+    "R@10": number;
+  };
+}
+
 /** Axios error augmentation. */
 export interface ApiError {
   status: number;

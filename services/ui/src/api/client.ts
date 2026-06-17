@@ -16,6 +16,8 @@ import type {
   DatasetId,
   DatasetsResponse,
   DocResponse,
+  EvaluateRequest,
+  EvaluateResponse,
   GatewayHealthResponse,
   LogClickRequest,
   RagRequest,
@@ -170,6 +172,19 @@ export function listDatasets(): Promise<DatasetId[]> {
  */
 export async function logClick(payload: LogClickRequest): Promise<void> {
   await api.post("/log/click", payload);
+}
+
+/**
+ * `POST /api/evaluate` → run live evaluation.
+ * Returns aggregated metrics (MAP, P@10, nDCG@10, R@10) for the
+ * given configuration across all sampled queries.
+ */
+export function runEvaluation(
+  req: EvaluateRequest,
+): Promise<EvaluateResponse> {
+  return api
+    .post<EvaluateResponse>("/evaluate", req, { timeout: 600_000 })
+    .then((r) => r.data);
 }
 
 /**
